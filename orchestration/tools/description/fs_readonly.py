@@ -14,6 +14,7 @@ TOOL_DESCRIPTION = {
         "- file_path: path to the file\n"
         "- offset: start line, 1-based — first line is 1, NOT 0 (default 1)\n"
         "- limit: max lines to return, range 1-1000 (default 100)\n"
+        "- encoding: file encoding (default 'utf-8', try 'gbk'/'latin-1')\n"
         "- allow_external_reads: read outside workspace (default False)\n"
         "Limits: max 1MB read. If 'truncated' is true, use offset=end_line+1 to continue.\n"
         "Check 'remaining' field — if >0, you have NOT seen the whole file."

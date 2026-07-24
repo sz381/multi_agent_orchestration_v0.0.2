@@ -11,6 +11,7 @@ def view_file(
     file_path: str,
     offset: int = 1,
     limit: int = 100,
+    encoding: str = "utf-8",
     allow_external_reads: bool = False,
 ) -> str:
     if not isinstance(limit, int) or limit < 1 or limit > 1000:
@@ -75,7 +76,7 @@ def view_file(
     MAX_READ_SIZE = 1 * 1024 * 1024
 
     try:
-        with open(file_path, "r", encoding="utf-8") as f:
+        with open(file_path, "r", encoding=encoding) as f:
             bytes_read = 0
             truncated = False
             lines: list[str] = []

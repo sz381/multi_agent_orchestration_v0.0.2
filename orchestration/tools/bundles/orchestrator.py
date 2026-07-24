@@ -25,16 +25,18 @@ from orchestration.tools._kernel._plan import (
 
 @tool("view_file", description=FS_READONLY_DESCRIPTION["view_file"])
 def view_file(
-    file_path: str, 
-    offset: int = 1, 
-    limit: int = 100, 
-    allow_external_reads: bool = False
+    file_path: str,
+    offset: int = 1,
+    limit: int = 100,
+    encoding: str = "utf-8",
+    allow_external_reads: bool = False,
 ) -> str:
     return _view_file(
-        file_path, 
-        offset, 
-        limit, 
-        allow_external_reads
+        file_path,
+        offset,
+        limit,
+        encoding,
+        allow_external_reads,
     )
 
 
@@ -81,27 +83,31 @@ def grep_tool(
 
 @tool("str_replace", description=FS_MUTATE_DESCRIPTION["str_replace"])
 async def str_replace(
-    file_path: str, 
-    old_str: str, 
-    new_str: str, 
-    replace_all: bool = False
+    file_path: str,
+    old_str: str,
+    new_str: str,
+    replace_all: bool = False,
+    encoding: str = "utf-8",
 ) -> str:
     return await _str_replace(
-        file_path, 
-        old_str, 
-        new_str, 
-        replace_all
+        file_path,
+        old_str,
+        new_str,
+        replace_all,
+        encoding,
     )
 
 
 @tool("write_file", description=FS_MUTATE_DESCRIPTION["write_file"])
 async def write_file(
-    file_path: str, 
-    content: str
+    file_path: str,
+    content: str,
+    encoding: str = "utf-8",
 ) -> str:
     return await _write_file(
-        file_path, 
-        content
+        file_path,
+        content,
+        encoding,
     )
     
 

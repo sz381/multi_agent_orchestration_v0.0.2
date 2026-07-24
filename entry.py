@@ -79,7 +79,7 @@ async def main():
     graph = build_graph()
 
     state = _safe_initial_state(
-        user_query="测试 grep, glob, view_file 性能，用最最最最严格的方式测试，包括你能传递的 params 的的各种可能性，并发测试，压力测试等等，你认为都全面了为止。你觉得你都会调用吗？tool description 写的有歧义吗？",
+        user_query="测试 write_file 和 str_replace 性能，用最最最最严格的方式测试，包括你能传递的 params 的的各种可能性，并发测试，压力测试等等，你认为都全面了为止。你觉得你都会调用吗？tool description 写的有歧义吗？我在 项目根目录下有一个叫做 tmp_test 的空文件，随便写，随便造。尤其是并发测试，并发写入或者替换之后一定要 viewfile, 看看有没有写入或者替换成功",
         conversation_id="demo_001",
         orchestration_id="demo_001",
     )
@@ -87,6 +87,7 @@ async def main():
     print(f"[USER] {state['user_query']}\n")
 
     _header_printed = False
+    _first_tool_in_batch = False
 
     async for mode, data in graph.astream(
         state, stream_mode=["updates", "messages"]
@@ -108,21 +109,28 @@ async def main():
             if isinstance(msg_chunk, AIMessageChunk):
                 if msg_chunk.tool_call_chunks:
                     if not _header_printed:
-                        print(f"\n[ORCHESTRATOR]", flush=True)
+                        print(f"\n[ORCHESTRATOR] ", end="", flush=True)
                         _header_printed = True
+                        _first_tool_in_batch = True
                     for tc in msg_chunk.tool_call_chunks:
                         if name := tc.get("name"):
-                            print(f"  TOOL [EXECUTING] {name}", flush=True)
+                            if _first_tool_in_batch:
+                                print(f"\n  TOOL [EXECUTING] {name}", flush=True)
+                                _first_tool_in_batch = False
+                            else:
+                                print(f"  TOOL [EXECUTING] {name}", flush=True)
                     continue
 
                 content = msg_chunk.content
                 if isinstance(content, str) and content:
                     if not _header_printed:
-                        print(f"\n[ORCHESTRATOR]", end=" ", flush=True)
+                        print(f"\n[ORCHESTRATOR] ", end="", flush=True)
                         _header_printed = True
                     print(content, end="", flush=True)
 
                 if not content and not msg_chunk.tool_call_chunks:
+                    if _header_printed:
+                        print(flush=True)
                     _header_printed = False
 
     print(f"\n\n[DONE]")
