@@ -79,7 +79,7 @@ async def main():
     graph = build_graph()
 
     state = _safe_initial_state(
-        user_query="测试 grep 性能，用最最最最严格的方式测试，包括你能传递的 params 的的各种可能性，并发测试，压力测试等等，你认为都全面了为止。",
+        user_query="测试 grep, glob, view_file 性能，用最最最最严格的方式测试，包括你能传递的 params 的的各种可能性，并发测试，压力测试等等，你认为都全面了为止。你觉得你都会调用吗？tool description 写的有歧义吗？",
         conversation_id="demo_001",
         orchestration_id="demo_001",
     )
