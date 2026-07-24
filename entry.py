@@ -57,9 +57,9 @@ def _fmt_tool_result(msg: ToolMessage) -> str:
             total = r.get("total_matches", 0)
             truncated = " (truncated)" if r.get("truncated") else ""
             if mode == "files_with_matches":
-                return f"ok  {r['total_files']} files matched{truncated} ({total} matches)"
+                return f"ok  {r.get('total_files', 0)} files matched{truncated} ({total} matches)"
             if mode == "count":
-                return f"ok  {r['total_files']} files, {r['total_occurrences']} occurrences{truncated} ({total} matches)"
+                return f"ok  {r.get('total_files', 0)} files, {r.get('total_occurrences', 0)} occurrences{truncated} ({total} matches)"
             if mode == "content":
                 n = len(r.get("results", []))
                 return f"ok  {n} lines{truncated} ({total} matches)"
@@ -79,7 +79,7 @@ async def main():
     graph = build_graph()
 
     state = _safe_initial_state(
-        user_query="测试 glob 性能，用最最最严格的方式测试，你认为都全面了为止。",
+        user_query="测试 grep 性能，用最最最最严格的方式测试，包括你能传递的 params 的的各种可能性，并发测试，压力测试等等，你认为都全面了为止。",
         conversation_id="demo_001",
         orchestration_id="demo_001",
     )

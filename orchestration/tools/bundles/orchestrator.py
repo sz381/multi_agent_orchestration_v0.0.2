@@ -62,17 +62,19 @@ def grep_tool(
     offset: int = 0,
     case_sensitive: bool = True,
     multiline: bool = False,
+    encoding: str = "utf-8",
     allow_external_reads: bool = False,
 ) -> str:
     return _grep_tool(
-        pattern, path, 
-        glob_pattern, 
-        output_mode, 
-        context_lines, 
-        head_limit, 
-        offset, 
-        case_sensitive, 
-        multiline, 
+        pattern, path,
+        glob_pattern,
+        output_mode,
+        context_lines,
+        head_limit,
+        offset,
+        case_sensitive,
+        multiline,
+        encoding,
         allow_external_reads
     )
 

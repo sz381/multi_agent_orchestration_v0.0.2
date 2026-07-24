@@ -27,6 +27,7 @@ TOOL_DESCRIPTION = {
         "- offset: skip first N results\n"
         "- case_sensitive: match case (default True)\n"
         "- multiline: allow . to match newlines (default False)\n"
+        "- encoding: file encoding (default 'utf-8', try 'gbk'/'latin-1' for non-UTF-8)\n"
         "- allow_external_reads: allow searching outside workspace (default False)\n"
     ),
 }

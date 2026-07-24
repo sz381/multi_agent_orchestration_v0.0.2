@@ -1,5 +1,5 @@
 import os
-import re
+import regex as re
 import json
 import glob
 import fnmatch
@@ -275,6 +275,7 @@ def grep_tool(
     offset: int = 0,
     case_sensitive: bool = True,
     multiline: bool = False,
+    encoding: str = "utf-8",
     allow_external_reads: bool = False,
 ) -> str:
     try:
@@ -305,12 +306,12 @@ def grep_tool(
             "message": f"Access to '{path}' is denied."
         }, ensure_ascii=False)
         
-    if not os.path.exists(real_path):
+    if not path or not path.strip():
         return json.dumps({
             "status": "error",
-            "message": f"File '{path}' does not exist."
+            "message": "path must not be empty."
         }, ensure_ascii=False)
-        
+
     if not pattern:
         return json.dumps({
             "status": "error",
@@ -323,16 +324,16 @@ def grep_tool(
             "message": f"Unknown output_mode: '{output_mode}'. Available: files_with_matches | content | count"
         }, ensure_ascii=False)
         
-    if context_lines < 0:
+    if context_lines < 0 or context_lines > 10:
         return json.dumps({
             "status": "error",
-            "message": "context_lines cannot be negative"
+            "message": "context_lines must be between 0 and 10."
         }, ensure_ascii=False)
         
-    if head_limit < 0:
+    if head_limit < 0 or head_limit > 1000:
         return json.dumps({
             "status": "error",
-            "message": "head_limit cannot be negative"
+            "message": "head_limit must be between 0 and 1000."
         }, ensure_ascii=False)
         
     if offset < 0:
@@ -341,20 +342,42 @@ def grep_tool(
             "message": "offset cannot be negative"
         }, ensure_ascii=False)
 
+    MAX_FILES = 5000
     files = []
+    files_truncated = False
+    
     if os.path.isfile(real_path):
         files.append(real_path)
     else:
-        for dirpath, dirnames, filenames in os.walk(real_path):
-            skip_dirs = {".git", "__pycache__", "node_modules", ".venv", ".tox", ".mypy_cache", ".pytest_cache"}
-            dirnames[:] = [d for d in dirnames if d not in skip_dirs]
-            for fname in filenames:
-                full_path = os.path.join(dirpath, fname)
-                if glob_pattern:
-                    rel = os.path.relpath(full_path, real_path)
-                    if not fnmatch.fnmatch(rel, glob_pattern):
-                        continue
-                files.append(full_path)
+        try:
+            for dirpath, dirnames, filenames in os.walk(real_path):
+                skip_dirs = {".git", "__pycache__", "node_modules", ".venv", ".tox", ".mypy_cache", ".pytest_cache"}
+                dirnames[:] = [d for d in dirnames if d not in skip_dirs]
+                
+                for fname in filenames:
+                    if len(files) >= MAX_FILES:
+                        files_truncated = True
+                        break
+                    
+                    full_path = os.path.join(dirpath, fname)
+                    
+                    if glob_pattern:
+                        rel = os.path.relpath(full_path, real_path)
+                        
+                        if not fnmatch.fnmatch(rel, glob_pattern):
+                            continue
+                        
+                    files.append(full_path)
+                    
+                if files_truncated:
+                    break
+                
+        except OSError as exc:
+            if not files:
+                return json.dumps({
+                    "status": "error",
+                    "message": f"Cannot traverse directory: {exc}"
+                }, ensure_ascii=False)
 
     flags = 0
     if not case_sensitive:
@@ -371,38 +394,87 @@ def grep_tool(
             "message": f"Invalid regex pattern: {exc}"
         }, ensure_ascii=False)
 
+    MAX_FILE_SIZE = 1 * 1024 * 1024
+    skipped_large_files: list[str] = []
+    timed_out_files: list[str] = []
+
     file_matches: list[dict] = []
+    _content_cache: dict[str, str] = {}
+    
     for file_path in files:
         try:
-            with open(file_path, "r", encoding="utf-8") as f:
+            if not allow_external_reads and not os.path.realpath(file_path).startswith(safe_root):
+                continue
+            if os.path.getsize(file_path) > MAX_FILE_SIZE:
+                skipped_large_files.append(file_path)
+                continue
+            
+            with open(file_path, "r", encoding=encoding) as f:
                 file_content = f.read()
-        except (UnicodeDecodeError, Exception):
+
+        except UnicodeDecodeError:
+            continue
+        except OSError:
             continue
 
+        _matches_before = len(file_matches)
+
         if multiline:
-            for m in re_compiled.finditer(file_content):
-                line_num = file_content[:m.start()].count("\n") + 1
-                line_text = m.group(0).split("\n")[0]
-                file_matches.append({
-                    "file": file_path,
-                    "line_num": line_num,
-                    "line_text": line_text.rstrip()
-                })
-        else:
-            lines = file_content.split("\n")
-            for line_num, line_text in enumerate(lines, start=1):
-                if re_compiled.search(line_text):
+            try:
+                for m in re_compiled.finditer(file_content, timeout=2.0):
+                    line_num = file_content[:m.start()].count("\n") + 1
+                    line_text = m.group(0).split("\n")[0]
                     file_matches.append({
                         "file": file_path,
                         "line_num": line_num,
                         "line_text": line_text.rstrip()
                     })
 
+            except TimeoutError:
+                timed_out_files.append(file_path)
+        else:
+            lines = file_content.split("\n")
+
+            for line_num, line_text in enumerate(lines, start=1):
+                try:
+                    if re_compiled.search(line_text, timeout=2.0):
+                        file_matches.append({
+                            "file": file_path,
+                            "line_num": line_num,
+                            "line_text": line_text.rstrip()
+                        })
+
+                except TimeoutError:
+                    timed_out_files.append(file_path)
+                    break
+
+        if len(file_matches) > _matches_before:
+            _content_cache[file_path] = file_content
+
     total_matches = len(file_matches)
+    
     if total_matches == 0:
+        msg = f"No matches for '{pattern}' in {len(files)} files"
+        
+        if files_truncated:
+            msg += f" (file list truncated at {MAX_FILES})"
+            
+        if skipped_large_files:
+            msg += f", {len(skipped_large_files)} large files skipped (>1MB)"
+            
+        if timed_out_files:
+            msg += f", {len(timed_out_files)} files timed out"
+            
         return json.dumps({
             "status": "ok",
-            "message": f"No matches for '{pattern}' in {len(files)} files"
+            "output_mode": output_mode,
+            "message": msg,
+            "total_matches": 0,
+            "total_files": 0,
+            "files_scanned": len(files),
+            "files_truncated": files_truncated,
+            "skipped_large_files": len(skipped_large_files),
+            "timed_out_files": len(timed_out_files),
         }, ensure_ascii=False)
 
     if offset >= total_matches:
@@ -410,17 +482,24 @@ def grep_tool(
             "status": "error",
             "message": f"[ERROR] offset {offset} exceeds total matches {total_matches}"
         }, ensure_ascii=False)
+        
     page_matches = file_matches[offset:offset + head_limit] if head_limit > 0 else file_matches[offset:]
     truncated = (offset + len(page_matches)) < total_matches
+
+    _page_file_set = {m["file"] for m in page_matches}
+    _content_cache = {k: v for k, v in _content_cache.items() if k in _page_file_set}
 
     if output_mode == "files_with_matches":
         visited_files_set: set[str] = set()
         unique_files_list: list[str] = []
+        
         for m in page_matches:
             rel = os.path.relpath(m["file"], safe_root)
+            
             if rel not in visited_files_set:
                 visited_files_set.add(rel)
                 unique_files_list.append(rel)
+                
         return json.dumps({
             "status": "ok",
             "output_mode": "files_with_matches",
@@ -428,14 +507,20 @@ def grep_tool(
             "total_files": len(unique_files_list),
             "total_matches": total_matches,
             "truncated": truncated,
+            "files_scanned": len(files),
+            "files_truncated": files_truncated,
+            "skipped_large_files": len(skipped_large_files),
+            "timed_out_files": len(timed_out_files),
             "page": {"offset": offset, "limit": head_limit},
         }, ensure_ascii=False)
 
     if output_mode == "count":
         file_counts: dict[str, int] = {}
+        
         for m in page_matches:
             rel = os.path.relpath(m["file"], safe_root)
             file_counts[rel] = file_counts.get(rel, 0) + 1
+            
         return json.dumps({
             "status": "ok",
             "output_mode": "count",
@@ -444,6 +529,10 @@ def grep_tool(
             "total_files": len(file_counts),
             "total_matches": total_matches,
             "truncated": truncated,
+            "files_scanned": len(files),
+            "files_truncated": files_truncated,
+            "skipped_large_files": len(skipped_large_files),
+            "timed_out_files": len(timed_out_files),
             "page": {"offset": offset, "limit": head_limit},
         }, ensure_ascii=False)
 
@@ -452,37 +541,49 @@ def grep_tool(
 
         def _get_lines(fp: str) -> list[str]:
             if fp not in _file_lines_cache:
-                try:
-                    with open(fp, "r", encoding="utf-8") as f:
-                        _file_lines_cache[fp] = f.readlines()
-                except (UnicodeDecodeError, Exception):
-                    _file_lines_cache[fp] = []
+                if fp in _content_cache:
+                    _file_lines_cache[fp] = _content_cache[fp].split("\n")
+                else:
+                    try:
+                        with open(fp, "r", encoding=encoding) as f:
+                            _file_lines_cache[fp] = f.readlines()
+                    except (UnicodeDecodeError, OSError):
+                        _file_lines_cache[fp] = []
+                        
             return _file_lines_cache[fp]
 
         file_groups: dict[str, list[dict]] = {}
+        
         for m in page_matches:
             rel = os.path.relpath(m["file"], safe_root)
             file_groups.setdefault(rel, []).append(m)
 
         results: dict[str, list[list[dict]]] = {}
+        
         for rel, matches in file_groups.items():
             abs_path = os.path.join(safe_root, rel)
             file_lines = _get_lines(abs_path)
+            
             if not file_lines:
                 continue
+            
             chunks: list[list[dict]] = []
+            
             for m in matches:
                 line_idx = m["line_num"] - 1
                 start = max(0, line_idx - context_lines)
                 end = min(len(file_lines), line_idx + context_lines + 1)
                 chunk: list[dict] = []
+                
                 for i in range(start, end):
                     chunk.append({
                         "line_num": i + 1,
                         "content": file_lines[i].rstrip("\n"),
-                        "match": (file_lines[i].rstrip("\n") == m["line_text"]),
+                        "match": (i + 1 == m["line_num"]),
                     })
+                    
                 chunks.append(chunk)
+                
             results[rel] = chunks
 
         return json.dumps({
@@ -491,5 +592,9 @@ def grep_tool(
             "results": results,
             "total_matches": total_matches,
             "truncated": truncated,
+            "files_scanned": len(files),
+            "files_truncated": files_truncated,
+            "skipped_large_files": len(skipped_large_files),
+            "timed_out_files": len(timed_out_files),
             "page": {"offset": offset, "limit": head_limit},
         }, ensure_ascii=False)
