@@ -79,7 +79,7 @@ async def main():
     graph = build_graph()
 
     state = _safe_initial_state(
-        user_query="测试view file 性能，用最最最严格的方式测试，你认为都全面了为止。",
+        user_query="测试 glob 性能，用最最最严格的方式测试，你认为都全面了为止。",
         conversation_id="demo_001",
         orchestration_id="demo_001",
     )

@@ -188,6 +188,26 @@ def glob_tool(
             "message": f"Cannot resolve workspace: {exc}"
         }, ensure_ascii=False)
     
+    if not pattern or not pattern.strip():
+        return json.dumps({
+            "status": "error",
+            "message": "pattern must not be empty."
+        }, ensure_ascii=False)
+
+    if os.path.isabs(pattern) or ".." in pattern.split(os.sep):
+        return json.dumps({
+            "status": "error",
+            "message": "pattern must be relative and must not contain '..'."
+        }, ensure_ascii=False)
+
+    if not dir_path or not dir_path.strip():
+        return json.dumps({
+            "status": "error",
+            "message": "dir_path must not be empty."
+        }, ensure_ascii=False)
+
+    dir_path = os.path.expanduser(dir_path)
+
     try:
         if not os.path.isabs(dir_path):
             search_dir = os.path.realpath(os.path.join(safe_root, dir_path))
@@ -213,13 +233,27 @@ def glob_tool(
         }, ensure_ascii=False)
 
     full_pattern = os.path.join(search_dir, pattern)
-    file_matches = glob.glob(full_pattern, recursive=True)
+    MAX_RESULTS = 500
+    MAX_SCAN = 5000
 
-    MAX_RESULTS = 100
-    total = len(file_matches)
-    truncated = total > MAX_RESULTS
-    if truncated:
-        file_matches = file_matches[:MAX_RESULTS]
+    file_matches: list[str] = []
+    total = 0
+    try:
+        for file_path in glob.iglob(full_pattern, recursive=True):
+            total += 1
+            if total > MAX_SCAN:
+                total = MAX_SCAN
+                break
+            if len(file_matches) < MAX_RESULTS:
+                file_matches.append(file_path)
+    except OSError as exc:
+        return json.dumps({
+            "status": "error",
+            "message": f"Scan failed: {exc}"
+        }, ensure_ascii=False)
+
+    file_matches.sort()
+    truncated = total >= MAX_SCAN or len(file_matches) >= MAX_RESULTS
 
     return json.dumps({
         "status": "ok",
@@ -251,6 +285,8 @@ def grep_tool(
             "message": f"Cannot resolve workspace: {exc}"
         }, ensure_ascii=False)
     
+    path = os.path.expanduser(path)
+
     try:
         if not os.path.isabs(path):
             real_path = os.path.realpath(os.path.join(safe_root, path))
