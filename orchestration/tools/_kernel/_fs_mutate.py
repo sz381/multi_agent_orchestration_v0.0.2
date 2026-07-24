@@ -24,8 +24,16 @@ async def str_replace(
     new_str: str,
     replace_all: bool = False
 ) -> str:
-    safe_root = get_workspace()
+    try:
+        safe_root = os.path.realpath(get_workspace())
+    except Exception as exc:
+        return json.dumps({
+            "status": "error",
+            "message": f"Cannot resolve workspace: {exc}"
+        }, ensure_ascii=False)
     
+    file_path = os.path.expanduser(file_path)
+
     try:
         if not os.path.isabs(file_path):
             file_path = os.path.realpath(os.path.join(safe_root, file_path))
@@ -133,8 +141,16 @@ async def write_file(
     file_path: str,
     content: str,
 ) -> str:
-    safe_root = get_workspace()
+    try:
+        safe_root = os.path.realpath(get_workspace())
+    except Exception as exc:
+        return json.dumps({
+            "status": "error",
+            "message": f"Cannot resolve workspace: {exc}"
+        }, ensure_ascii=False)
     
+    file_path = os.path.expanduser(file_path)
+
     try:
         if not os.path.isabs(file_path):
             file_path = os.path.realpath(os.path.join(safe_root, file_path))

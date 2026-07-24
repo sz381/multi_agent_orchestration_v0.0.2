@@ -13,8 +13,34 @@ def view_file(
     limit: int = 100,
     allow_external_reads: bool = False,
 ) -> str:
-    safe_root = get_workspace()
+    if not isinstance(limit, int) or limit < 1 or limit > 1000:
+        return json.dumps({
+            "status": "error",
+            "message": "limit must be an integer between 1 and 1000."
+        }, ensure_ascii=False)
+
+    if not isinstance(offset, int) or offset < 1:
+        return json.dumps({
+            "status": "error",
+            "message": "offset must be a positive integer."
+        }, ensure_ascii=False)
+
+    if not file_path or not file_path.strip():
+        return json.dumps({
+            "status": "error",
+            "message": "file_path must not be empty."
+        }, ensure_ascii=False)
+
+    try:
+        safe_root = os.path.realpath(get_workspace())
+    except Exception as exc:
+        return json.dumps({
+            "status": "error",
+            "message": f"Cannot resolve workspace: {exc}"
+        }, ensure_ascii=False)
     
+    file_path = os.path.expanduser(file_path)
+
     try:
         if not os.path.isabs(file_path):
             file_path = os.path.realpath(os.path.join(safe_root, file_path))
@@ -27,41 +53,64 @@ def view_file(
         }, ensure_ascii=False)
         
     safe_root = safe_root.rstrip(os.sep) + os.sep
+    
     if not allow_external_reads and not file_path.startswith(safe_root):
         return json.dumps({
             "status": "error",
             "message": f"Access to '{file_path}' is denied."
         }, ensure_ascii=False)
-        
+
     if not os.path.exists(file_path):
-        return json.dumps(
-            {"status": "error",
+        return json.dumps({
+            "status": "error",
             "message": f"File '{file_path}' does not exist."
         }, ensure_ascii=False)
-        
+
     if os.path.isdir(file_path):
         return json.dumps({
             "status": "error",
             "message": f"'{file_path}' is a directory."
         }, ensure_ascii=False)
-    MAX_FILE_SIZE = 1 * 1024 * 1024
+
+    MAX_READ_SIZE = 1 * 1024 * 1024
 
     try:
         with open(file_path, "r", encoding="utf-8") as f:
             bytes_read = 0
+            truncated = False
             lines: list[str] = []
+
             for raw_line in f:
                 bytes_read += len(raw_line.encode("utf-8"))
-                if bytes_read > MAX_FILE_SIZE:
-                    return json.dumps({
-                        "status": "error",
-                        "message": f"File too large (> {MAX_FILE_SIZE / 1024 / 1024:.0f}MB)."
-                    }, ensure_ascii=False)
+
+                if bytes_read > MAX_READ_SIZE:
+                    truncated = True
+                    break
+
                 lines.append(raw_line)
+                
+    except FileNotFoundError:
+        return json.dumps({
+            "status": "error",
+            "message": f"File '{file_path}' does not exist."
+        }, ensure_ascii=False)
+    except IsADirectoryError:
+        return json.dumps({
+            "status": "error",
+            "message": f"'{file_path}' is a directory."
+        }, ensure_ascii=False)
+    except PermissionError:
+        return json.dumps({
+            "status": "error",
+            "message": f"Permission denied: '{file_path}'."
+        }, ensure_ascii=False)
     except UnicodeDecodeError:
         return json.dumps({
             "status": "error",
-            "message": f"{file_path} is a binary file, cannot display as text."
+            "message": (
+                f"{file_path} cannot be decoded as UTF-8. "
+                f"Retry with encoding='gbk' or 'latin-1' if needed."
+            )
         }, ensure_ascii=False)
     except Exception as exc:
         return json.dumps({
@@ -70,6 +119,7 @@ def view_file(
         }, ensure_ascii=False)
 
     total_lines = len(lines)
+
     if total_lines == 0:
         return json.dumps({
             "status": "ok",
@@ -78,11 +128,21 @@ def view_file(
             "start_line": 0,
             "end_line": 0,
             "remaining": 0,
+            "truncated": False,
+            "file_complete": True,
             "lines": [],
         }, ensure_ascii=False)
 
-    offset = 1 if offset < 1 else offset
     if offset > total_lines:
+        if truncated:
+            return json.dumps({
+                "status": "error",
+                "message": (
+                    f"Start line {offset} exceeds read limit ({total_lines} lines, "
+                    f"{MAX_READ_SIZE / 1024 / 1024:.0f}MB). Use a smaller offset "
+                    f"or view the file in chunks with offset=1 limit=100."
+                )
+            }, ensure_ascii=False)
         return json.dumps({
             "status": "error",
             "message": f"Start line {offset} exceeds total lines {total_lines}."
@@ -93,15 +153,26 @@ def view_file(
     selected_lines = lines[start_idx:end_idx]
     numbered_lines = [{"line_no": i, "content": line.rstrip("\n")} for i, line in enumerate(selected_lines, start=offset)]
 
-    return json.dumps({
+    result = {
         "status": "ok",
         "path": file_path,
         "total_lines": total_lines,
         "start_line": offset,
         "end_line": end_idx,
         "remaining": total_lines - end_idx,
+        "truncated": truncated,
+        "file_complete": not truncated,
         "lines": numbered_lines,
-    }, ensure_ascii=False)
+    }
+
+    if truncated:
+        result["message"] = (
+            f"File truncated at {MAX_READ_SIZE / 1024 / 1024:.0f}MB "
+            f"(showing lines {offset}-{end_idx} of {total_lines} loaded). "
+            f"Use offset={end_idx + 1} limit={limit} to continue reading."
+        )
+
+    return json.dumps(result, ensure_ascii=False)
 
 
 def glob_tool(
@@ -109,7 +180,13 @@ def glob_tool(
     dir_path: str = ".",
     allow_external_reads: bool = False,
 ) -> str:
-    safe_root = get_workspace()
+    try:
+        safe_root = os.path.realpath(get_workspace())
+    except Exception as exc:
+        return json.dumps({
+            "status": "error",
+            "message": f"Cannot resolve workspace: {exc}"
+        }, ensure_ascii=False)
     
     try:
         if not os.path.isabs(dir_path):
@@ -166,7 +243,13 @@ def grep_tool(
     multiline: bool = False,
     allow_external_reads: bool = False,
 ) -> str:
-    safe_root = get_workspace()
+    try:
+        safe_root = os.path.realpath(get_workspace())
+    except Exception as exc:
+        return json.dumps({
+            "status": "error",
+            "message": f"Cannot resolve workspace: {exc}"
+        }, ensure_ascii=False)
     
     try:
         if not os.path.isabs(path):

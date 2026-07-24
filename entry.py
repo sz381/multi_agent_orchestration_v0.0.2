@@ -46,9 +46,24 @@ def _fmt_tool_result(msg: ToolMessage) -> str:
             return f"ok  {r['path']} ({r['total_lines']} lines)"
         return f"{r['status']}  {r['message']}"
 
-    if name in ("glob_tool", "grep_tool"):
+    if name == "glob_tool":
         if r["status"] == "ok":
             return f"ok  {r['message']} ({r['count']} files)"
+        return f"{r['status']}  {r['message']}"
+
+    if name == "grep_tool":
+        if r["status"] == "ok":
+            mode = r.get("output_mode", "files_with_matches")
+            total = r.get("total_matches", 0)
+            truncated = " (truncated)" if r.get("truncated") else ""
+            if mode == "files_with_matches":
+                return f"ok  {r['total_files']} files matched{truncated} ({total} matches)"
+            if mode == "count":
+                return f"ok  {r['total_files']} files, {r['total_occurrences']} occurrences{truncated} ({total} matches)"
+            if mode == "content":
+                n = len(r.get("results", []))
+                return f"ok  {n} lines{truncated} ({total} matches)"
+            return f"ok  {total} matches{truncated}"
         return f"{r['status']}  {r['message']}"
 
     if name in ("str_replace", "write_file"):
@@ -64,7 +79,7 @@ async def main():
     graph = build_graph()
 
     state = _safe_initial_state(
-        user_query="explore the project structure and tell me what you find",
+        user_query="测试view file 性能，用最最最严格的方式测试，你认为都全面了为止。",
         conversation_id="demo_001",
         orchestration_id="demo_001",
     )
