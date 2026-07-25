@@ -104,7 +104,6 @@ def _is_private_url(url: str) -> bool:
     return False
 
 
-
 def _format_web_search_results(raw_results: list[dict]) -> str:
     if not raw_results:
         return json.dumps({

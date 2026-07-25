@@ -3,7 +3,7 @@ import json
 
 MAX_RESPONSE_LENGTH = 100_000
 MAX_TASKS = 50
-AVAILABLE_SUBAGENT_PREFIXES = ["programmer", "reviewer", "search"]
+AVAILABLE_SUBAGENT_PREFIXES = ["programmer", "reviewer", "researcher"]
 REQUIRED_TASK_FIELDS = {
     "task_id", "task_name", "task_description",
     "task_completion_status", "subagent_id", "subagent_name",

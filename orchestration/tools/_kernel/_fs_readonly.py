@@ -144,6 +144,7 @@ def view_file(
                     f"or view the file in chunks with offset=1 limit=100."
                 )
             }, ensure_ascii=False)
+            
         return json.dumps({
             "status": "error",
             "message": f"Start line {offset} exceeds total lines {total_lines}."

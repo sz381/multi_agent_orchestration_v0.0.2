@@ -1,7 +1,7 @@
 from langchain_core.messages import SystemMessage, AIMessage
 
 from orchestration.state import OrchestrationState
-from orchestration.prompts.sys_prompt_orchestrator import ORCHESTRATOR_SYSTEM_PROMPT
+from orchestration.prompts.system_prompt_orchestrator import ORCHESTRATOR_SYSTEM_PROMPT
 from orchestration.tools.bundles.orchestrator import ORCHESTRATOR_TOOLS
 from utils.model import init_model
 from utils.logging import get_logger

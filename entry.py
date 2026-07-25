@@ -151,7 +151,7 @@ async def main():
     graph = build_graph()
 
     state = _safe_initial_state(
-        user_query="帮我狠狠地测试 bash 工具，想怎么搞怎么搞，并发，各种参数，少填写参数了什么的，别给我电脑搞爆炸就行了。谢谢！",
+        user_query="尝试读取并写入(使用 bash 写入不要通过 write file)， /Users/shenweizhang/Desktop/learn_rust （外部 workspace）",
         conversation_id="demo_001",
         orchestration_id="demo_001",
     )
