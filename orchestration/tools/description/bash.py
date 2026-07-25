@@ -1,3 +1,7 @@
+"""
+description for the bash tool.
+"""
+
 TOOL_DESCRIPTION = {
     "bash": (
         "Execute a shell command inside a macOS Seatbelt sandbox.\n"

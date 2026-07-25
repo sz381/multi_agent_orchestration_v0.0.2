@@ -1,3 +1,8 @@
+"""Orchestrator node — the central LLM decision-maker in the graph.
+
+Initialises the model, bind tools, and exposes ``orchestrator_node`` and ``interrupt_node``.
+"""
+
 from langchain_core.messages import SystemMessage, AIMessage
 
 from orchestration.state import OrchestrationState
@@ -18,23 +23,17 @@ _model_with_tools = _model.bind_tools(ORCHESTRATOR_TOOLS)
 
 
 async def orchestrator_node(state: OrchestrationState) -> dict:
+    """Invoke the LLM with the system prompt and message history.
+
+    Returns the model's response  as a new message appended to the state.
+    """
+    
     try:
         system_msg = SystemMessage(content=ORCHESTRATOR_SYSTEM_PROMPT)
-        history = state.get("messages", [])
+        history = state["messages"]
         messages = [system_msg] + history
 
         response = await _model_with_tools.ainvoke(messages)
-
-        # # Debug: log what LLM returned ################################################################################################
-        # tool_calls = getattr(response, "tool_calls", None)
-        # content = getattr(response, "content", "")
-        # logger.info(f"LLM response: type={type(response).__name__}, "
-        #              f"tool_calls={len(tool_calls) if tool_calls else 0}, "
-        #              f"content_len={len(content) if content else 0}")
-        # if tool_calls:
-        #     for tc in tool_calls:
-        #         logger.info(f"  tool_call: name={tc.get('name')}, args_keys={list(tc.get('args', {}).keys())}")
-        # ################################################################################################################################
 
         return {"messages": [response]}
 
@@ -47,4 +46,7 @@ async def orchestrator_node(state: OrchestrationState) -> dict:
 
 
 async def interrupt_node(state: OrchestrationState) -> dict:
+    """
+    No-op node that pauses the graph for human input.
+    """
     return {}

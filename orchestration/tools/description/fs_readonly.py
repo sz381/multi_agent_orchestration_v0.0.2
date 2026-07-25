@@ -1,3 +1,7 @@
+"""
+LLM-facing descriptions for the filesystem read tools.
+"""
+
 TOOL_DESCRIPTION = {
     "glob": (
         "Find files by glob pattern (e.g. '**/*.py'). Returns absolute paths.\n"

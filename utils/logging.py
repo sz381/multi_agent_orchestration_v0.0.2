@@ -1,3 +1,9 @@
+"""Structured logging via structlog.
+
+- Dev mode prints colorized output to stderr. 
+- Production writes JSON tofile and plain text to console.
+"""
+
 import logging
 import structlog
 import sys
@@ -6,9 +12,15 @@ from pathlib import Path
 
 
 def setup_logging(
-    dev_mode: bool = True, 
-    log_level: int = logging.INFO
+    dev_mode: bool = True,
+    log_level: int = logging.INFO,
 ) -> None:
+    """Configure structlog once at application startup.
+
+    - In dev mode uses a colorized console renderer. 
+    - In production adds rotating JSON file output and a plain-text console fallback.
+    """
+    
     timestamper = structlog.processors.TimeStamper(fmt="iso")
 
     if dev_mode:
@@ -62,7 +74,9 @@ def setup_logging(
     root_logger.addHandler(console_handler)
 
 
-def get_logger(
-    name: str = __name__
-) -> structlog.stdlib.BoundLogger:
+def get_logger(name: str = __name__) -> structlog.stdlib.BoundLogger:
+    """
+    Return a structlog logger bound to the given name.
+    """
+    
     return structlog.get_logger(name)

@@ -1,3 +1,9 @@
+"""LangGraph graph definition for the orchestrator.
+
+Builds the main orchestration loop: orchestrator → tools → back,
+with conditional routing for pause, stop, and fanout.
+"""
+
 from langgraph.graph import StateGraph, START, END
 from langgraph.prebuilt import ToolNode
 
@@ -7,15 +13,25 @@ from orchestration.tools.bundles.orchestrator import ORCHESTRATOR_TOOLS
 
 
 def _has_tool_calls(state: OrchestrationState) -> bool:
-    messages = state.get("messages", [])
+    """
+    Check whether the last message in state contains tool calls.
+    """
     
+    messages = state["messages"]
+
     if not messages:
         return False
-    
+
     return bool(getattr(messages[-1], "tool_calls", None))
 
 
 def route_after_orchestrator(state: OrchestrationState) -> str:
+    """Decide where the graph should go after the orchestrator runs.
+
+    Priority order: stop → pause → response ready → tool calls → fanout.
+    Falls back to END.
+    """
+    
     if state["should_orchestration_stop"]:
         return END
 
@@ -35,6 +51,10 @@ def route_after_orchestrator(state: OrchestrationState) -> str:
 
 
 def build_graph():
+    """
+    Construct and compile the orchestrator StateGraph.
+    """
+    
     builder = StateGraph(OrchestrationState)
 
     builder.add_node("orchestrator", orchestrator_node)

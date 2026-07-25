@@ -1,3 +1,7 @@
+"""
+LLM-facing descriptions for the filesystem write tools.
+"""
+
 TOOL_DESCRIPTION = {
     "str_replace": (
         "Replace exact text in an existing file (atomic write).\n"

@@ -1,3 +1,7 @@
+"""
+LLM-facing descriptions for orchestration control tools.
+"""
+
 TOOL_DESCRIPTION = {
     "end_orchestration": (
         "Deliver the final response to the user. MUST be the last tool you call "

@@ -1,3 +1,7 @@
+"""
+LLM initialization
+"""
+
 from langchain_openai import ChatOpenAI
 
 from utils.settings import settings
@@ -9,6 +13,10 @@ def init_model(
     max_tokens: int = 16384,
     streaming: bool = True,
 ) -> ChatOpenAI:
+    """
+    Create a configured ``ChatOpenAI`` instance
+    """
+    
     return ChatOpenAI(
         model=model_name,
         api_key=settings.deepseek_api_key,

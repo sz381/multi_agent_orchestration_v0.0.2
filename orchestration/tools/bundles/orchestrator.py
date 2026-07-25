@@ -1,3 +1,8 @@
+"""LangChain tool definitions for the orchestrator.
+
+Thin wrappers that bind kernel implementations to ``@tool`` decorators
+"""
+
 import json
 from typing import Any
 
@@ -251,18 +256,19 @@ def delete_plan(
     })
 
 
+"""All tools available to the orchestrator LLM node."""
 ORCHESTRATOR_TOOLS = [
-    view_file, 
-    glob_tool, 
+    view_file,
+    glob_tool,
     grep_tool,
-    str_replace, 
+    str_replace,
     write_file,
     bash,
     web_search,
     fetch_web,
-    end_orchestration, 
+    end_orchestration,
     fanout_subagents,
-    make_plan, 
-    edit_plan, 
+    make_plan,
+    edit_plan,
     delete_plan,
 ]

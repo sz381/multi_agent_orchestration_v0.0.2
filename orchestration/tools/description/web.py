@@ -1,3 +1,7 @@
+"""
+LLM-facing descriptions for the web search and fetch tools.
+"""
+
 TOOL_DESCRIPTION = {
     "web_search": (
         "Search the web via DuckDuckGo, returning structured JSON results.\n"

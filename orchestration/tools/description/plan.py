@@ -1,3 +1,7 @@
+"""
+LLM-facing descriptions for the plan management tools.
+"""
+
 TOOL_DESCRIPTION = {
     "make_plan": (
         "Create an execution plan with phases before delegating complex work. "
