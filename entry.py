@@ -4,6 +4,7 @@ import json
 from langchain_core.messages import AIMessageChunk, HumanMessage, ToolMessage
 
 from orchestration.graph import build_graph
+from orchestration.tools._kernel._web import close_crawler
 
 
 def _safe_initial_state(**overrides) -> dict:
@@ -34,12 +35,21 @@ def _safe_initial_state(**overrides) -> dict:
 
 
 def _fmt_tool_result(msg: ToolMessage) -> str:
+    name = msg.name
+
+    if name == "fetch_web":
+        try:
+            r = json.loads(msg.content)
+            if r.get("status") == "error":
+                return f"{r['status']}  {r['message']}"
+        except (json.JSONDecodeError, TypeError):
+            pass
+        return f"ok  {len(msg.content)} chars"
+
     try:
         r = json.loads(msg.content)
     except (json.JSONDecodeError, TypeError):
         return msg.content[:100]
-
-    name = msg.name
 
     if name == "view_file":
         if r["status"] == "ok":
@@ -80,6 +90,12 @@ def _fmt_tool_result(msg: ToolMessage) -> str:
 
     if name in ("end_orchestration", "fanout_subagents"):
         return f"ok  {msg.content[:80]}"
+
+    if name == "web_search":
+        if r["status"] == "ok":
+            n = r.get("total_results", 0)
+            return f"ok  {n} result(s)"
+        return f"{r['status']}  {r['message']}"
 
     return msg.content[:80]
 
@@ -122,7 +138,7 @@ async def main():
     graph = build_graph()
 
     state = _safe_initial_state(
-        user_query="在 tmp_test 中实现一个简单的 TODO 应用（前端 HTML 页面 + 后端 Python 服务）。不用真的执行代码，用 fanout_subagents 把前端和代码审查任务分派给 programmer 和 reviewer。然后 end_orchestration 收尾。",
+        user_query="给我狠狠地测试 web search + fetch web 的能力，最最最严格的方式，可能遇到的所有问题，例如 参数不对，并发问题，你能想到的都试试！随便搜点儿都行，想搜啥搜啥，想咋并发咋并发。",
         conversation_id="demo_001",
         orchestration_id="demo_001",
     )
@@ -200,6 +216,7 @@ async def main():
                         print(flush=True)
                     _header_printed = False
 
+    await close_crawler()
     print(f"\n\n[DONE]")
 
 

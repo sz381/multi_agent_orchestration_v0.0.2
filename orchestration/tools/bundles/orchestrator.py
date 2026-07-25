@@ -10,6 +10,7 @@ from orchestration.tools.description.fs_mutate import TOOL_DESCRIPTION as FS_MUT
 from orchestration.tools.description.fs_readonly import TOOL_DESCRIPTION as FS_READONLY_DESCRIPTION
 from orchestration.tools.description.orch_control import TOOL_DESCRIPTION as ORCH_CONTROL_DESCRIPTION
 from orchestration.tools.description.plan import TOOL_DESCRIPTION as PLAN_DESCRIPTION
+from orchestration.tools.description.web import TOOL_DESCRIPTION as WEB_DESCRIPTION
 from orchestration.tools._kernel._fs_mutate import (
     str_replace as _str_replace,
     write_file as _write_file,
@@ -27,6 +28,10 @@ from orchestration.tools._kernel._plan import (
 from orchestration.tools._kernel._orch_control import (
     end_orchestration as _end_orchestration,
     fanout_subagents as _fanout_subagents,
+)
+from orchestration.tools._kernel._web import (
+    web_search as _web_search,
+    fetch_web as _fetch_web,
 )
 
 
@@ -116,8 +121,34 @@ async def write_file(
         content,
         encoding,
     )
-    
 
+
+@tool("web_search", description=WEB_DESCRIPTION["web_search"])
+def web_search(
+    query: str,
+    max_results: int = 5,
+    allowed_domains: list[str] | None = None,
+    blocked_domains: list[str] | None = None,
+) -> str:
+    return _web_search(
+        query,
+        max_results,
+        allowed_domains,
+        blocked_domains,
+    )
+
+
+@tool("fetch_web", description=WEB_DESCRIPTION["fetch_web"])
+async def fetch_web(
+    url: str,
+    prompt: str,
+) -> str:
+    return await _fetch_web(
+        url,
+        prompt,
+    )
+
+    
 @tool("end_orchestration", description=ORCH_CONTROL_DESCRIPTION["end_orchestration"])
 async def end_orchestration(
     response: Any,
@@ -209,6 +240,8 @@ ORCHESTRATOR_TOOLS = [
     grep_tool,
     str_replace, 
     write_file,
+    web_search,
+    fetch_web,
     end_orchestration, 
     fanout_subagents,
     make_plan, 
