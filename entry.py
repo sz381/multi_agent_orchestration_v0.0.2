@@ -97,6 +97,19 @@ def _fmt_tool_result(msg: ToolMessage) -> str:
             return f"ok  {n} result(s)"
         return f"{r['status']}  {r['message']}"
 
+    if name == "bash":
+        if r["status"] == "ok":
+            cmd = r.get("command", "")
+            exit_code = r.get("exit_code")
+            elapsed = r.get("elapsed", 0)
+            if exit_code is None:
+                exit_str = "TIMEOUT"
+            else:
+                exit_str = f"exit={exit_code}"
+            cmd_display = cmd if len(cmd) <= 120 else cmd[:117] + "..."
+            return f"{exit_str}  {elapsed}s  {cmd_display}"
+        return f"{r['status']}  {r['message']}"
+
     return msg.content[:80]
 
 
