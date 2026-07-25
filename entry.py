@@ -138,7 +138,7 @@ async def main():
     graph = build_graph()
 
     state = _safe_initial_state(
-        user_query="给我狠狠地测试 web search + fetch web 的能力，最最最严格的方式，可能遇到的所有问题，例如 参数不对，并发问题，你能想到的都试试！随便搜点儿都行，想搜啥搜啥，想咋并发咋并发。",
+        user_query="帮我找一些 Open Harmony 7 的资讯，感谢！",
         conversation_id="demo_001",
         orchestration_id="demo_001",
     )

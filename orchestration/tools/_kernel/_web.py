@@ -22,7 +22,7 @@ MAX_URL_LENGTH              = 2048
 MAX_PROMPT_LENGTH           = 5000
 SUMMARIZE_LENGTH_THRESHOLD  = 4000
 MAX_CONTENT_CHARS           = 100_000
-PAGE_TIMEOUT_MS             = 15_000
+PAGE_TIMEOUT_MS             = 20_000
 
 _crawler: AsyncWebCrawler | None = None
 _crawler_lock = asyncio.Lock()
