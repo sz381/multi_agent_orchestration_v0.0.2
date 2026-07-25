@@ -78,10 +78,27 @@ def _fmt_tool_result(msg: ToolMessage) -> str:
     if name == "delete_plan":
         return f"{r.get('status', 'ok')}  {r.get('message', msg.content[:80])}"
 
-    if name in ("finish", "delegate"):
+    if name in ("end_orchestration", "fanout_subagents"):
         return f"ok  {msg.content[:80]}"
 
     return msg.content[:80]
+
+
+def _fmt_fanout_tasks(tasks: list[dict] | None) -> str:
+    if not tasks:
+        return ""
+    lines = ["\n" + "=" * 60]
+    lines.append(f"  FANOUT — {len(tasks)} task(s) dispatched")
+    lines.append("=" * 60)
+    for t in tasks:
+        status_icon = "●" if t.get("task_completion_status") else "○"
+        lines.append(f"  {status_icon} [{t.get('task_id', '?')}] {t.get('task_name', '?')}")
+        lines.append(f"    agent:  {t.get('subagent_name', '?')} ({t.get('subagent_id', '?')})")
+        desc = t.get('task_description', '')
+        if desc:
+            lines.append(f"    desc:   {desc}")
+    lines.append("=" * 60)
+    return "\n".join(lines)
 
 
 def _fmt_plan(plan: list[dict] | None) -> str:
@@ -105,7 +122,7 @@ async def main():
     graph = build_graph()
 
     state = _safe_initial_state(
-        user_query="测试 make_plan, edit_plan, delete_plan, 不用真的去执行，我只是测试 工具能力，用你能想出来最苛刻的方式测试，可以混合其他的工具调用，测试目录 在 tmp_test 中, 第一个测试先创建20个plan阶段",
+        user_query="在 tmp_test 中实现一个简单的 TODO 应用（前端 HTML 页面 + 后端 Python 服务）。不用真的执行代码，用 fanout_subagents 把前端和代码审查任务分派给 programmer 和 reviewer。然后 end_orchestration 收尾。",
         conversation_id="demo_001",
         orchestration_id="demo_001",
     )
@@ -122,7 +139,8 @@ async def main():
             for node_name, output in data.items():
                 if node_name == "tools":
                     if not isinstance(output, dict):
-                        print(f"\n[DEBUG] tools output type: {type(output).__name__}, value: {str(output)[:200]}", flush=True)
+                        # 此处会打印 list, 就是 plan phase list
+                        # print(f"\n[DEBUG] tools output type: {type(output).__name__}, value: {str(output)[:200]}", flush=True)
                         continue
                     for msg in output.get("messages", []):
                         if isinstance(msg, ToolMessage):
@@ -136,6 +154,10 @@ async def main():
                                     pass
                         else:
                             print(f"\n[DEBUG] unexpected msg type: {type(msg).__name__}, content: {str(getattr(msg, 'content', msg))[:200]}", flush=True)
+                    # Print fanout tasks if dispatched in this turn
+                    tasks = output.get("sub_agent_round_tasks", [])
+                    if tasks:
+                        print(_fmt_fanout_tasks(tasks), flush=True)
                     _header_printed = False
 
                 elif node_name == "__error__":

@@ -275,6 +275,12 @@ async def write_file(
                     "message": f"Cannot read {file_path}: {exc}"
                 }, ensure_ascii=False)
 
+        if existed and old_content == content:
+            return json.dumps({
+                "status": "ok",
+                "message": "[UNCHANGED] content identical; no changes made."
+            }, ensure_ascii=False)
+
         tmp_fd, tmp_path = tempfile.mkstemp(dir=os.path.dirname(file_path))
         
         try:

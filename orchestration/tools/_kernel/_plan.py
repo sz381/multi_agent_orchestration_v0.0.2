@@ -14,7 +14,7 @@ def make_plan(
             "message": "phases must be a non-empty list."
         }, ensure_ascii=False)
 
-    MAX_PHASES = 20
+    MAX_PHASES = 12
     if len(phases) > MAX_PHASES:
         return json.dumps({
             "status": "error",
@@ -197,8 +197,16 @@ def edit_plan(
 
 def delete_plan(
     phase_id: str, 
-    plan: list[dict]
+    plan: list[dict],
+    delete_all: bool = False,
 ) -> str:
+    if delete_all:
+        return json.dumps({
+            "status": "ok",
+            "message": "All plans deleted.",
+            "plan": [],
+        }, ensure_ascii=False)
+
     if not isinstance(phase_id, str) or not phase_id.strip():
         return json.dumps({
             "status": "error",

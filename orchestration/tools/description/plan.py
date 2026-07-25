@@ -1,4 +1,4 @@
-TOOL_DESCRIPTIONS = {
+TOOL_DESCRIPTION = {
     "make_plan": (
         "Create an execution plan with phases before delegating complex work. "
         "Only use for tasks with 3+ distinct steps. Calling again overwrites the plan.\n"
@@ -6,7 +6,7 @@ TOOL_DESCRIPTIONS = {
         "- phases: list of dicts, each with exactly:\n"
         "    phase_id (unique string), phase_name (string),\n"
         "    phase_status ('pending'|'in_progress'|'done'), phase_description (string)\n"
-        "Limits: max 20 phases. No extra fields allowed."
+        "Limits: max 12 phases. No extra fields allowed."
     ),
     "edit_plan": (
         "Modify one or more plan phases in a single call (e.g. mark phases as in_progress/done).\n"

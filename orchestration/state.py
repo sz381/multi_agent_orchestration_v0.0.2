@@ -26,13 +26,13 @@ class OrchestrationState(TypedDict):
     messages: Annotated[list, add_messages]
     user_query: str
     plan: Annotated[list[Plan] | None, lambda _left, right: right]
-    sub_agent_round_tasks: list[SubAgentRoundTaskItem]
+    sub_agent_round_tasks: Annotated[list[SubAgentRoundTaskItem], lambda _left, right: right]
     sub_agent_task: Annotated[SubAgentRoundTaskItem, lambda _left, right: right]
     sub_agent_outputs: Annotated[dict, lambda left, right: {**left, **right}]
     orchestration_status: str
     should_orchestration_pause: bool
     should_orchestration_stop: bool
-    response: str
+    response: Annotated[str, lambda _left, right: right]
     output_artifacts: Annotated[list, lambda left, right: left + right]
     total_tokens: Annotated[int, operator.add]
     start_at: str

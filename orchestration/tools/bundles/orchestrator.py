@@ -1,4 +1,5 @@
 import json
+from typing import Any
 
 from langchain_core.tools import tool
 from langchain_core.messages import ToolMessage
@@ -7,8 +8,8 @@ from langgraph.prebuilt import ToolRuntime
 
 from orchestration.tools.description.fs_mutate import TOOL_DESCRIPTION as FS_MUTATE_DESCRIPTION
 from orchestration.tools.description.fs_readonly import TOOL_DESCRIPTION as FS_READONLY_DESCRIPTION
-from orchestration.tools.description.orch_control import ORCH_CONTROL_DESCRIPTIONS
-from orchestration.tools.description.plan import TOOL_DESCRIPTIONS as PLAN_DESCRIPTION
+from orchestration.tools.description.orch_control import TOOL_DESCRIPTION as ORCH_CONTROL_DESCRIPTION
+from orchestration.tools.description.plan import TOOL_DESCRIPTION as PLAN_DESCRIPTION
 from orchestration.tools._kernel._fs_mutate import (
     str_replace as _str_replace,
     write_file as _write_file,
@@ -22,6 +23,10 @@ from orchestration.tools._kernel._plan import (
     make_plan as _make_plan,
     edit_plan as _edit_plan,
     delete_plan as _delete_plan,
+)
+from orchestration.tools._kernel._orch_control import (
+    end_orchestration as _end_orchestration,
+    fanout_subagents as _fanout_subagents,
 )
 
 
@@ -113,28 +118,39 @@ async def write_file(
     )
     
 
-@tool("finish", description=ORCH_CONTROL_DESCRIPTIONS["finish"])
-def finish(response: str, runtime: ToolRuntime) -> Command:
+@tool("end_orchestration", description=ORCH_CONTROL_DESCRIPTION["end_orchestration"])
+async def end_orchestration(
+    response: Any,
+    runtime: ToolRuntime
+) -> Command | str:
+    result = await _end_orchestration(response, runtime.state["response"])
+
+    r = json.loads(result)
+
+    if r["status"] == "error":
+        return r["message"]
+
     return Command(update={
-        "response": response,
-        "messages": [ToolMessage(content="Task completed", tool_call_id=runtime.tool_call_id)],
+        "response": response.strip(),
+        "messages": [ToolMessage(content=result, tool_call_id=runtime.tool_call_id)],
     })
 
 
-@tool("delegate", description=ORCH_CONTROL_DESCRIPTIONS["delegate"])
-def delegate(tasks: list[dict], runtime: ToolRuntime) -> Command:
-    required_task_fields = {
-        "task_id", "task_name", "task_description", "task_completion_status", "subagent_id", "subagent_name",
-    }
-    
-    for i, t in enumerate(tasks):
-        missing = required_task_fields - t.keys()
-        if missing:
-            return f"task[{i}] missing required fields: {missing}"
-    
+@tool("fanout_subagents", description=ORCH_CONTROL_DESCRIPTION["fanout_subagents"])
+async def fanout_subagents(
+    tasks: Any, 
+    runtime: ToolRuntime
+) -> Command | str:
+    result = await _fanout_subagents(tasks, runtime.state["sub_agent_round_tasks"])
+
+    r = json.loads(result)
+
+    if r["status"] == "error":
+        return r["message"]
+
     return Command(update={
-        "sub_agent_round_tasks": tasks,
-        "messages": [ToolMessage(content="Delegated tasks", tool_call_id=runtime.tool_call_id)],
+        "sub_agent_round_tasks": r["tasks"],
+        "messages": [ToolMessage(content=result, tool_call_id=runtime.tool_call_id)],
     })
 
 
@@ -174,14 +190,7 @@ def delete_plan(
     delete_all: bool = False,
     runtime: ToolRuntime = None,
 ) -> Command | str:
-    if delete_all:
-        all_deleted_result = json.dumps({"status": "ok", "message": "All plans deleted.", "plan": []}, ensure_ascii=False)
-        return Command(update={
-            "plan": [],
-            "messages": [ToolMessage(content=all_deleted_result, tool_call_id=runtime.tool_call_id)],
-        })
-
-    result = _delete_plan(phase_id, runtime.state["plan"] or [])
+    result = _delete_plan(phase_id, runtime.state["plan"] or [], delete_all)
     
     r = json.loads(result)
     
@@ -200,8 +209,8 @@ ORCHESTRATOR_TOOLS = [
     grep_tool,
     str_replace, 
     write_file,
-    finish, 
-    delegate,
+    end_orchestration, 
+    fanout_subagents,
     make_plan, 
     edit_plan, 
     delete_plan,
