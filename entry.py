@@ -69,17 +69,43 @@ def _fmt_tool_result(msg: ToolMessage) -> str:
     if name in ("str_replace", "write_file"):
         return f"{r['status']}  {r['message']}"
 
-    if name in ("finish", "delegate", "make_plan", "edit_plan", "delete_plan"):
+    if name == "make_plan":
+        return f"{r.get('status', 'ok')}  {r.get('message', msg.content[:80])}"
+
+    if name == "edit_plan":
+        return f"{r.get('status', 'ok')}  {r.get('message', msg.content[:80])}"
+
+    if name == "delete_plan":
+        return f"{r.get('status', 'ok')}  {r.get('message', msg.content[:80])}"
+
+    if name in ("finish", "delegate"):
         return f"ok  {msg.content[:80]}"
 
-    raise ValueError(f"Unknown tool: {name}")
+    return msg.content[:80]
+
+
+def _fmt_plan(plan: list[dict] | None) -> str:
+    if not plan:
+        return ""
+    lines = ["\n" + "=" * 60]
+    lines.append(f"  PLAN ({len(plan)} phases)")
+    lines.append("=" * 60)
+    for p in plan:
+        status_icon = {"pending": "○", "in_progress": "◐", "done": "●"}.get(p.get("phase_status", ""), "○")
+        lines.append(f"  {status_icon} [{p.get('phase_id', '?')}] {p.get('phase_name', '?')}")
+        lines.append(f"    status: {p.get('phase_status', '?')}")
+        desc = p.get('phase_description', '')
+        if desc:
+            lines.append(f"    desc: {desc}")
+    lines.append("=" * 60)
+    return "\n".join(lines)
 
 
 async def main():
     graph = build_graph()
 
     state = _safe_initial_state(
-        user_query="测试 write_file 和 str_replace 性能，用最最最最严格的方式测试，包括你能传递的 params 的的各种可能性，并发测试，压力测试等等，你认为都全面了为止。你觉得你都会调用吗？tool description 写的有歧义吗？我在 项目根目录下有一个叫做 tmp_test 的空文件，随便写，随便造。尤其是并发测试，并发写入或者替换之后一定要 viewfile, 看看有没有写入或者替换成功",
+        user_query="测试 make_plan, edit_plan, delete_plan, 不用真的去执行，我只是测试 工具能力，用你能想出来最苛刻的方式测试，可以混合其他的工具调用，测试目录 在 tmp_test 中, 第一个测试先创建20个plan阶段",
         conversation_id="demo_001",
         orchestration_id="demo_001",
     )
@@ -95,13 +121,32 @@ async def main():
         if mode == "updates":
             for node_name, output in data.items():
                 if node_name == "tools":
+                    if not isinstance(output, dict):
+                        print(f"\n[DEBUG] tools output type: {type(output).__name__}, value: {str(output)[:200]}", flush=True)
+                        continue
                     for msg in output.get("messages", []):
                         if isinstance(msg, ToolMessage):
                             print(f"  TOOL [DONE] {msg.name}  {_fmt_tool_result(msg)}", flush=True)
+                            if msg.name in ("make_plan", "edit_plan", "delete_plan"):
+                                try:
+                                    r = json.loads(msg.content)
+                                    if r.get("status") == "ok" and r.get("plan"):
+                                        print(_fmt_plan(r["plan"]), flush=True)
+                                except (json.JSONDecodeError, TypeError):
+                                    pass
+                        else:
+                            print(f"\n[DEBUG] unexpected msg type: {type(msg).__name__}, content: {str(getattr(msg, 'content', msg))[:200]}", flush=True)
                     _header_printed = False
+
+                elif node_name == "__error__":
+                    print(f"\n[ERROR] {output}", flush=True)
 
                 elif node_name == "interrupt":
                     print("\n[INTERRUPT] PAUSED — waiting for human input", flush=True)
+
+                else:
+                    if isinstance(output, dict) and output.get("error_message"):
+                        print(f"\n[NODE ERROR] {node_name}: {output['error_message']}", flush=True)
 
         elif mode == "messages":
             msg_chunk, _metadata = data

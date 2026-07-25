@@ -25,6 +25,17 @@ async def orchestrator_node(state: OrchestrationState) -> dict:
 
         response = await _model_with_tools.ainvoke(messages)
 
+        # # Debug: log what LLM returned ################################################################################################
+        # tool_calls = getattr(response, "tool_calls", None)
+        # content = getattr(response, "content", "")
+        # logger.info(f"LLM response: type={type(response).__name__}, "
+        #              f"tool_calls={len(tool_calls) if tool_calls else 0}, "
+        #              f"content_len={len(content) if content else 0}")
+        # if tool_calls:
+        #     for tc in tool_calls:
+        #         logger.info(f"  tool_call: name={tc.get('name')}, args_keys={list(tc.get('args', {}).keys())}")
+        # ################################################################################################################################
+
         return {"messages": [response]}
 
     except Exception as e:

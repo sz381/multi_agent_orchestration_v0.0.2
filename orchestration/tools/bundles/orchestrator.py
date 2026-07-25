@@ -1,3 +1,5 @@
+import json
+
 from langchain_core.tools import tool
 from langchain_core.messages import ToolMessage
 from langgraph.types import Command
@@ -5,7 +7,7 @@ from langgraph.prebuilt import ToolRuntime
 
 from orchestration.tools.description.fs_mutate import TOOL_DESCRIPTION as FS_MUTATE_DESCRIPTION
 from orchestration.tools.description.fs_readonly import TOOL_DESCRIPTION as FS_READONLY_DESCRIPTION
-from orchestration.tools.description.control import CONTROL_DESCRIPTIONS
+from orchestration.tools.description.orch_control import ORCH_CONTROL_DESCRIPTIONS
 from orchestration.tools.description.plan import TOOL_DESCRIPTIONS as PLAN_DESCRIPTION
 from orchestration.tools._kernel._fs_mutate import (
     str_replace as _str_replace,
@@ -111,7 +113,7 @@ async def write_file(
     )
     
 
-@tool("finish", description=CONTROL_DESCRIPTIONS["finish"])
+@tool("finish", description=ORCH_CONTROL_DESCRIPTIONS["finish"])
 def finish(response: str, runtime: ToolRuntime) -> Command:
     return Command(update={
         "response": response,
@@ -119,7 +121,7 @@ def finish(response: str, runtime: ToolRuntime) -> Command:
     })
 
 
-@tool("delegate", description=CONTROL_DESCRIPTIONS["delegate"])
+@tool("delegate", description=ORCH_CONTROL_DESCRIPTIONS["delegate"])
 def delegate(tasks: list[dict], runtime: ToolRuntime) -> Command:
     required_task_fields = {
         "task_id", "task_name", "task_description", "task_completion_status", "subagent_id", "subagent_name",
@@ -137,28 +139,32 @@ def delegate(tasks: list[dict], runtime: ToolRuntime) -> Command:
 
 
 @tool("make_plan", description=PLAN_DESCRIPTION["make_plan"])
-def make_plan(phases: list[dict], runtime: ToolRuntime) -> Command:
-    required_phase_fields = {
-        "phase_id", "phase_name", "phase_status", "phase_description",
-    }
+def make_plan(phases: list[dict], runtime: ToolRuntime) -> Command | str:
+    result = _make_plan(phases)
     
-    for i, p in enumerate(phases):
-        missing = required_phase_fields - p.keys()
-        if missing:
-            return f"phase[{i}] missing required fields: {missing}"
+    r = json.loads(result)
+    
+    if r["status"] == "error":
+        return r["message"]
     
     return Command(update={
-        "plan": _make_plan(phases),
-        "messages": [ToolMessage(content="Plan created", tool_call_id=runtime.tool_call_id)],
+        "plan": r["plan"],
+        "messages": [ToolMessage(content=result, tool_call_id=runtime.tool_call_id)],
     })
 
 
 @tool("edit_plan", description=PLAN_DESCRIPTION["edit_plan"])
-def edit_plan(phase_id: str, update: dict, runtime: ToolRuntime) -> Command:
-    new_plan = _edit_plan(phase_id, update, runtime.state["plan"])
+def edit_plan(updates: list[dict], runtime: ToolRuntime) -> Command | str:
+    result = _edit_plan(updates, runtime.state["plan"] or [])
+    
+    r = json.loads(result)
+    
+    if r["status"] == "error":
+        return r["message"]
+    
     return Command(update={
-        "plan": new_plan,
-        "messages": [ToolMessage(content="Plan edited", tool_call_id=runtime.tool_call_id)],
+        "plan": r["plan"],
+        "messages": [ToolMessage(content=result, tool_call_id=runtime.tool_call_id)],
     })
 
 
@@ -167,17 +173,24 @@ def delete_plan(
     phase_id: str = "",
     delete_all: bool = False,
     runtime: ToolRuntime = None,
-) -> Command:
+) -> Command | str:
     if delete_all:
+        all_deleted_result = json.dumps({"status": "ok", "message": "All plans deleted.", "plan": []}, ensure_ascii=False)
         return Command(update={
             "plan": [],
-            "messages": [ToolMessage(content="All plans deleted", tool_call_id=runtime.tool_call_id)],
+            "messages": [ToolMessage(content=all_deleted_result, tool_call_id=runtime.tool_call_id)],
         })
+
+    result = _delete_plan(phase_id, runtime.state["plan"] or [])
     
-    new_plan = _delete_plan(phase_id, runtime.state["plan"])
+    r = json.loads(result)
+    
+    if r["status"] == "error":
+        return r["message"]
+    
     return Command(update={
-        "plan": new_plan,
-        "messages": [ToolMessage(content="Plan deleted", tool_call_id=runtime.tool_call_id)],
+        "plan": r["plan"],
+        "messages": [ToolMessage(content=result, tool_call_id=runtime.tool_call_id)],
     })
 
 

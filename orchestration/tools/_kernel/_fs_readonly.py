@@ -153,7 +153,6 @@ def view_file(
     end_idx = min(start_idx + limit, total_lines)
     selected_lines = lines[start_idx:end_idx]
     numbered_lines = [{"line_no": i, "content": line.rstrip("\n")} for i, line in enumerate(selected_lines, start=offset)]
-
     result = {
         "status": "ok",
         "path": file_path,
@@ -221,6 +220,7 @@ def glob_tool(
         }, ensure_ascii=False)
         
     safe_root = safe_root.rstrip(os.sep) + os.sep
+    
     if not allow_external_reads and not (search_dir + os.sep).startswith(safe_root):
         return json.dumps({
             "status": "error",
@@ -236,15 +236,17 @@ def glob_tool(
     full_pattern = os.path.join(search_dir, pattern)
     MAX_RESULTS = 500
     MAX_SCAN = 5000
-
     file_matches: list[str] = []
     total = 0
+    
     try:
         for file_path in glob.iglob(full_pattern, recursive=True):
             total += 1
+            
             if total > MAX_SCAN:
                 total = MAX_SCAN
                 break
+            
             if len(file_matches) < MAX_RESULTS:
                 file_matches.append(file_path)
     except OSError as exc:
@@ -301,6 +303,7 @@ def grep_tool(
         }, ensure_ascii=False)
         
     safe_root = safe_root.rstrip(os.sep) + os.sep
+    
     if not allow_external_reads and not (real_path + os.sep).startswith(safe_root):
         return json.dumps({
             "status": "error",
@@ -398,7 +401,6 @@ def grep_tool(
     MAX_FILE_SIZE = 1 * 1024 * 1024
     skipped_large_files: list[str] = []
     timed_out_files: list[str] = []
-
     file_matches: list[dict] = []
     _content_cache: dict[str, str] = {}
     
@@ -486,7 +488,6 @@ def grep_tool(
         
     page_matches = file_matches[offset:offset + head_limit] if head_limit > 0 else file_matches[offset:]
     truncated = (offset + len(page_matches)) < total_matches
-
     _page_file_set = {m["file"] for m in page_matches}
     _content_cache = {k: v for k, v in _content_cache.items() if k in _page_file_set}
 

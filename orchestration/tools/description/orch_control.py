@@ -1,4 +1,4 @@
-CONTROL_DESCRIPTIONS = {
+ORCH_CONTROL_DESCRIPTIONS = {
     "finish": (
         "Deliver the final response to the user. MUST be the last tool you call "
         "every turn. Do NOT call any other tool after finish.\n"

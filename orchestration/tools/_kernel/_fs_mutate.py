@@ -13,6 +13,10 @@ def _get_file_lock(file_path: str) -> asyncio.Lock:
     return _file_locks.setdefault(file_path, asyncio.Lock())
 
 
+MAX_WRITE_SIZE = 1 * 1024 * 1024
+MAX_DIFF_SIZE = 4096
+
+
 async def str_replace(
     file_path: str,
     old_str: str,
@@ -56,6 +60,7 @@ async def str_replace(
         }, ensure_ascii=False)
 
     safe_root = safe_root.rstrip(os.sep) + os.sep
+    
     if not file_path.startswith(safe_root):
         return json.dumps({
             "status": "error",
@@ -83,12 +88,12 @@ async def str_replace(
     async with _get_file_lock(file_path):
         try:
             with open(file_path, "r", encoding=encoding) as f:
-                content = f.read(MAX_WRITE_SIZE + 1)
+                content = f.read(MAX_WRITE_SIZE + 1)     
         except UnicodeDecodeError:
             return json.dumps({
                 "status": "error",
                 "message": f"{file_path} cannot be decoded as {encoding}. Retry with encoding='gbk' or 'latin-1'."
-            }, ensure_ascii=False)
+            }, ensure_ascii=False)  
         except PermissionError:
             return json.dumps({
                 "status": "error",
@@ -132,6 +137,7 @@ async def str_replace(
             new_content = content.replace(old_str, new_str, 1)
 
         tmp_fd, tmp_path = tempfile.mkstemp(dir=os.path.dirname(file_path))
+        
         try:
             with os.fdopen(tmp_fd, "w", encoding=encoding) as f:
                 f.write(new_content)
@@ -140,12 +146,12 @@ async def str_replace(
             return json.dumps({
                 "status": "error",
                 "message": f"new_str contains characters not encodable as {encoding}. Try encoding='utf-8'."
-            }, ensure_ascii=False)
+            }, ensure_ascii=False)     
         except OSError as exc:
             return json.dumps({
                 "status": "error",
                 "message": f"Cannot write to {file_path}: {exc}"
-            }, ensure_ascii=False)
+            }, ensure_ascii=False)  
         finally:
             if os.path.exists(tmp_path):
                 try:
@@ -167,10 +173,6 @@ async def str_replace(
         }, ensure_ascii=False)
 
 
-MAX_WRITE_SIZE = 1 * 1024 * 1024
-MAX_DIFF_SIZE = 4096
-
-
 async def write_file(
     file_path: str,
     content: str,
@@ -183,7 +185,7 @@ async def write_file(
         }, ensure_ascii=False)
 
     try:
-        "".encode(encoding)
+        "".encode(encoding) 
     except LookupError:
         return json.dumps({
             "status": "error",
@@ -191,7 +193,7 @@ async def write_file(
         }, ensure_ascii=False)
 
     try:
-        safe_root = os.path.realpath(get_workspace())
+        safe_root = os.path.realpath(get_workspace())    
     except Exception as exc:
         return json.dumps({
             "status": "error",
@@ -204,7 +206,7 @@ async def write_file(
         if not os.path.isabs(file_path):
             file_path = os.path.realpath(os.path.join(safe_root, file_path))
         else:
-            file_path = os.path.realpath(file_path)
+            file_path = os.path.realpath(file_path)       
     except OSError as exc:
         return json.dumps({
             "status": "error",
@@ -274,6 +276,7 @@ async def write_file(
                 }, ensure_ascii=False)
 
         tmp_fd, tmp_path = tempfile.mkstemp(dir=os.path.dirname(file_path))
+        
         try:
             with os.fdopen(tmp_fd, "w", encoding=encoding) as f:
                 f.write(content)

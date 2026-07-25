@@ -25,7 +25,7 @@ class OrchestrationState(TypedDict):
     orchestration_id: str
     messages: Annotated[list, add_messages]
     user_query: str
-    plan: list[Plan] | None
+    plan: Annotated[list[Plan] | None, lambda _left, right: right]
     sub_agent_round_tasks: list[SubAgentRoundTaskItem]
     sub_agent_task: Annotated[SubAgentRoundTaskItem, lambda _left, right: right]
     sub_agent_outputs: Annotated[dict, lambda left, right: {**left, **right}]
