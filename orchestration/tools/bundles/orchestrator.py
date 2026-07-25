@@ -11,6 +11,7 @@ from orchestration.tools.description.fs_readonly import TOOL_DESCRIPTION as FS_R
 from orchestration.tools.description.orch_control import TOOL_DESCRIPTION as ORCH_CONTROL_DESCRIPTION
 from orchestration.tools.description.plan import TOOL_DESCRIPTION as PLAN_DESCRIPTION
 from orchestration.tools.description.web import TOOL_DESCRIPTION as WEB_DESCRIPTION
+from orchestration.tools.description.bash import TOOL_DESCRIPTION as BASH_DESCRIPTION
 from orchestration.tools._kernel._fs_mutate import (
     str_replace as _str_replace,
     write_file as _write_file,
@@ -33,6 +34,7 @@ from orchestration.tools._kernel._web import (
     web_search as _web_search,
     fetch_web as _fetch_web,
 )
+from orchestration.tools._kernel._bash import bash as _bash
 
 
 @tool("view_file", description=FS_READONLY_DESCRIPTION["view_file"])
@@ -120,6 +122,21 @@ async def write_file(
         file_path,
         content,
         encoding,
+    )
+
+
+@tool("bash", description=BASH_DESCRIPTION["bash"])
+def bash(
+    cmd: str,
+    cwd: str = ".",
+    timeout: int = 30,
+    allow_network: bool = True,
+) -> str:
+    return _bash(
+        cmd,
+        cwd,
+        timeout,
+        allow_network,
     )
 
 
@@ -240,6 +257,7 @@ ORCHESTRATOR_TOOLS = [
     grep_tool,
     str_replace, 
     write_file,
+    bash,
     web_search,
     fetch_web,
     end_orchestration, 

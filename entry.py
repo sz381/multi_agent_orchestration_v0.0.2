@@ -138,7 +138,7 @@ async def main():
     graph = build_graph()
 
     state = _safe_initial_state(
-        user_query="帮我找一些 Open Harmony 7 的资讯，感谢！",
+        user_query="帮我狠狠地测试 bash 工具，想怎么搞怎么搞，并发，各种参数，少填写参数了什么的，别给我电脑搞爆炸就行了。谢谢！",
         conversation_id="demo_001",
         orchestration_id="demo_001",
     )
