@@ -1,11 +1,13 @@
 """LangGraph graph definition for the orchestrator.
 
 Builds the main orchestration loop:
-    START → orchestrator → tools → back
-                        → fanout (Send to workers) → workers → orchestrator
-                        → interrupt / END
+    START → orchestrator → tools → fanout (Send) or back
+    workers → collect → orchestrator
+    interrupt → orchestrator
 
 Uses LangGraph Send API for dynamic parallel worker dispatch.
+Fanout is dispatched immediately after tools execution — the orchestrator
+never gets a turn with pending tasks.
 """
 
 from langgraph.graph import StateGraph, START, END
@@ -34,24 +36,40 @@ def _has_tool_calls(state: OrchestrationState) -> bool:
 def route_after_orchestrator(state: OrchestrationState):
     """Decide where the graph should go after the orchestrator runs.
 
-    Priority: stop → pause → response → tool calls → fanout → END.
+    Priority: stop → pause → response → tool calls → END.
+
+    Subagent dispatch is handled by route_after_tools, not here.
+
+    Returns:
+        str for single-target routing.
+    """
+    result = END
+    if state["should_orchestration_stop"]:
+        result = END
+    elif state["should_orchestration_pause"]:
+        result = "interrupt"
+    elif _has_tool_calls(state):
+        result = "tools"
+    elif state["response"]:
+        result = END
+    # print(f"[DEBUG route_after_orchestrator] -> {result}  response={state.get('response')!r}  has_tool_calls={_has_tool_calls(state)}", flush=True)
+    return result
+
+
+def route_after_tools(state: OrchestrationState):
+    """Dispatch subagents immediately after tools finish, or loop back.
+
+    Priority: fanout (Send API) → orchestrator.
+
+    Dispatching here (not after orchestrator) guarantees that pending
+    subagent tasks are never blocked by the orchestrator generating
+    new tool calls in the same turn.
 
     Returns:
         str for single-target routing, list[Send] for fanout to multiple workers.
     """
-    if state["should_orchestration_stop"]:
-        return END
-
-    if state["should_orchestration_pause"]:
-        return "interrupt"
-
-    if state["response"]:
-        return END
-
-    if _has_tool_calls(state):
-        return "tools"
-
     tasks = state.get("sub_agent_round_tasks") or []
+    # print(f"\n[DEBUG route_after_tools] sub_agent_round_tasks={tasks}  plan={[(p.get('phase_id'), p.get('phase_status')) for p in (state.get('plan') or [])]}  response={state.get('response')!r}", flush=True)
     if tasks:
         return [
             Send(
@@ -67,7 +85,7 @@ def route_after_orchestrator(state: OrchestrationState):
             for t in tasks
         ]
 
-    return END
+    return "orchestrator"
 
 
 def _collect_worker_results(state: OrchestrationState) -> dict:
@@ -98,7 +116,6 @@ def build_graph():
         builder.add_node(name, graph)
 
     builder.add_edge(START, "orchestrator")
-    builder.add_edge("tools", "orchestrator")
     builder.add_edge("interrupt", "orchestrator")
 
     for name in SUBAGENT_MAP:
@@ -112,6 +129,14 @@ def build_graph():
             "tools": "tools",
             "interrupt": "interrupt",
             END: END,
+        },
+    )
+
+    builder.add_conditional_edges(
+        "tools",
+        route_after_tools,
+        {
+            "orchestrator": "orchestrator",
         },
     )
 

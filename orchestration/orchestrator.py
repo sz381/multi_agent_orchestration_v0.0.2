@@ -23,19 +23,44 @@ _model_with_tools = _model.bind_tools(ORCHESTRATOR_TOOLS)
 
 
 async def orchestrator_node(state: OrchestrationState) -> dict:
-    """Invoke the LLM with the system prompt and message history.
+    """Invoke the LLM with the system prompt, plan status, and message history.
 
-    Returns the model's response  as a new message appended to the state.
+    The current plan is injected into the system prompt so the orchestrator
+    always knows which phases are still pending — no tool call needed.
     """
-    
+
     try:
-        system_msg = SystemMessage(content=ORCHESTRATOR_SYSTEM_PROMPT)
+        plan = state.get("plan") or []
+        system_content = ORCHESTRATOR_SYSTEM_PROMPT
+        if plan:
+            plan_lines = ["\n## CURRENT PLAN"]
+            for p in plan:
+                icon = {"pending": "○", "in_progress": "◐", "done": "●"}.get(p.get("phase_status", ""), "?")
+                plan_lines.append(
+                    f"  {icon} [{p.get('phase_id', '?')}] {p.get('phase_name', '?')}"
+                )
+            plan_lines.append(
+                "\nBefore ending, verify ALL phases are ●. If any are ○ or ◐, you MUST act on them first."
+            )
+            system_content += "\n".join(plan_lines)
+
+        system_msg = SystemMessage(content=system_content)
         history = state["messages"]
         messages = [system_msg] + history
 
         response = await _model_with_tools.ainvoke(messages)
 
-        return {"messages": [response]}
+        tool_names = [tc.get("name") for tc in (response.tool_calls or [])]
+        # print(f"[DEBUG orchestrator_node] tool_calls={tool_names}  content_len={len(response.content) if response.content else 0}", flush=True)
+
+        # Fallback: if the LLM responds with content but no tool_calls
+        # and end_orchestration hasn't been called, auto-set the response
+        # field so the graph ends cleanly instead of silently.
+        result = {"messages": [response]}
+        if response.content and not response.tool_calls and not state.get("response"):
+            result["response"] = response.content
+
+        return result
 
     except Exception as e:
         logger.error(f"Orchestrator invocation failed: {e}", exc_info=True)

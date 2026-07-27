@@ -151,7 +151,7 @@ async def main():
     graph = build_graph()
 
     state = _safe_initial_state(
-        user_query="尝试读取并写入(使用 bash 写入不要通过 write file)， /Users/shenweizhang/Desktop/learn_rust （外部 workspace）",
+        user_query="帮我做一个实习生管理系统，创建一个项目目录叫做 itmanager，需要：1. 后端：FastAPI + SQLite，包含实习生 CRUD、部门管理、考勤记录 3 个模块的 REST API  2. 前端：React + TypeScript，包含实习生列表页、详情页、考勤打卡页  3. 一份 README.md 说明如何启动。 然后写完代码之后，并发2个reseacher帮我搜索 鸿蒙 7 的资料，感谢！",
         conversation_id="demo_001",
         orchestration_id="demo_001",
     )
@@ -160,6 +160,7 @@ async def main():
 
     _header_printed = False
     _first_tool_in_batch = False
+    _ended_properly = False
 
     async for mode, data in graph.astream(
         state, stream_mode=["updates", "messages"]
@@ -168,8 +169,11 @@ async def main():
             for node_name, output in data.items():
                 if node_name == "tools":
                     if not isinstance(output, dict):
-                        # 此处会打印 list, 就是 plan phase list
-                        # print(f"\n[DEBUG] tools output type: {type(output).__name__}, value: {str(output)[:200]}", flush=True)
+                        # Command-based tools (edit_plan, delete_plan, etc.)
+                        # can produce state updates as lists (plan) instead of dicts.
+                        # Still need to show the result and reset header state.
+                        # print(f"  [DEBUG tools output type={type(output).__name__}] {str(output)[:200]}", flush=True)
+                        _header_printed = False
                         continue
                     for msg in output.get("messages", []):
                         if isinstance(msg, ToolMessage):
@@ -210,6 +214,8 @@ async def main():
                         _first_tool_in_batch = True
                     for tc in msg_chunk.tool_call_chunks:
                         if name := tc.get("name"):
+                            if name == "end_orchestration":
+                                _ended_properly = True
                             if _first_tool_in_batch:
                                 print(f"\n  TOOL [EXECUTING] {name}", flush=True)
                                 _first_tool_in_batch = False
@@ -230,7 +236,9 @@ async def main():
                     _header_printed = False
 
     await close_crawler()
-    print(f"\n\n[DONE]")
+    if not _ended_properly:
+        print(f"\n\n⚠️  Orchestrator did not call end_orchestration. Graph ended via fallback.")
+    print(f"\n[DONE]")
 
 
 if __name__ == "__main__":

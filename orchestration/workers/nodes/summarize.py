@@ -56,7 +56,7 @@ def make_summarize(name: str):
 
         artifacts = _extract_artifacts(state["messages"])
 
-        start_at = float(state.get("start_at", 0))
+        start_at = float(state.get("worker_start_at", 0))
         elapsed = time.time() - start_at if start_at else 0
 
         logger = get_logger(__name__)
@@ -74,7 +74,6 @@ def make_summarize(name: str):
         token_used = state.get("total_tokens", 0)
 
         return {
-            "response": final_text,
             "output_artifacts": artifacts,
             "sub_agent_outputs": {
                 task_id: {
@@ -88,8 +87,8 @@ def make_summarize(name: str):
                 }
             },
             "total_tokens": token_used,
-            "time_elapsed": round(elapsed, 1),
-            "error_message": "" if final_text else "empty output",
+            "worker_time_elapsed": round(elapsed, 1),
+            "worker_error_message": "" if final_text else "empty output",
         }
 
     return summarize_node

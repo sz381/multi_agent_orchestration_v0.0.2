@@ -4,13 +4,14 @@ LLM-facing descriptions for the plan management tools.
 
 TOOL_DESCRIPTION = {
     "make_plan": (
-        "Create an execution plan with phases before delegating complex work. "
-        "Only use for tasks with 3+ distinct steps. Calling again overwrites the plan.\n"
+        "Create an execution plan with phases. Use before fanout_subagents for "
+        "complex multi-phase work (e.g. research → implement → review). "
+        "After fanout results arrive, use edit_plan to update phase status.\n"
         "Params:\n"
         "- phases: list of dicts, each with exactly:\n"
         "    phase_id (unique string), phase_name (string),\n"
         "    phase_status ('pending'|'in_progress'|'done'), phase_description (string)\n"
-        "Limits: max 12 phases. No extra fields allowed."
+        "Limits: max 12 phases. Calling again overwrites the plan. No extra fields allowed."
     ),
     "edit_plan": (
         "Modify one or more plan phases in a single call (e.g. mark phases as in_progress/done).\n"

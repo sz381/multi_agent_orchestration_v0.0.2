@@ -187,14 +187,14 @@ def make_plan(phases: list[dict], runtime: ToolRuntime) -> Command | str:
         return r["message"]
 
     return Command(update={
-        "plan": r["plan"],
+        "worker_plan": r["plan"],
         "messages": [ToolMessage(content=result, tool_call_id=runtime.tool_call_id)],
     })
 
 
 @tool("edit_plan", description=PLAN_DESCRIPTION["edit_plan"])
 def edit_plan(updates: list[dict], runtime: ToolRuntime) -> Command | str:
-    result = _edit_plan(updates, runtime.state["plan"] or [])
+    result = _edit_plan(updates, runtime.state.get("worker_plan") or [])
 
     r = json.loads(result)
 
@@ -202,7 +202,7 @@ def edit_plan(updates: list[dict], runtime: ToolRuntime) -> Command | str:
         return r["message"]
 
     return Command(update={
-        "plan": r["plan"],
+        "worker_plan": r["plan"],
         "messages": [ToolMessage(content=result, tool_call_id=runtime.tool_call_id)],
     })
 
@@ -213,7 +213,7 @@ def delete_plan(
     delete_all: bool = False,
     runtime: ToolRuntime = None,
 ) -> Command | str:
-    result = _delete_plan(phase_id, runtime.state["plan"] or [], delete_all)
+    result = _delete_plan(phase_id, runtime.state.get("worker_plan") or [], delete_all)
 
     r = json.loads(result)
 
@@ -221,7 +221,7 @@ def delete_plan(
         return r["message"]
 
     return Command(update={
-        "plan": r["plan"],
+        "worker_plan": r["plan"],
         "messages": [ToolMessage(content=result, tool_call_id=runtime.tool_call_id)],
     })
 

@@ -18,17 +18,16 @@ class SubAgentState(TypedDict):
     task_name: str
     task_description: str
     messages: Annotated[list, add_messages]
-    response: str
     output_artifacts: Annotated[list, operator.add]
     sub_agent_outputs: Annotated[dict, lambda left, right: {**left, **right}]
     total_tokens: int
-    start_at: str
-    time_elapsed: float
-    error_message: str
+    worker_start_at: str
+    worker_time_elapsed: float
+    worker_error_message: str
 
 
 class ProgrammerSubAgentState(SubAgentState):
-    plan: Annotated[list[Plan] | None, lambda _left, right: right]
+    worker_plan: Annotated[list[Plan] | None, lambda _left, right: right]
 
 
 class ResearcherSubAgentState(SubAgentState):

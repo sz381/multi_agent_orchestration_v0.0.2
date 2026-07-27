@@ -75,9 +75,9 @@ class OrchestrationState(TypedDict):
     sub_agent_round_tasks: Annotated[list[SubAgentRoundTaskItem], lambda _left, right: right]
     sub_agent_task: Annotated[SubAgentRoundTaskItem, lambda _left, right: right]
     sub_agent_outputs: Annotated[dict, lambda left, right: {**left, **right}]
-    orchestration_status: str
-    should_orchestration_pause: bool
-    should_orchestration_stop: bool
+    orchestration_status: str               # 保留：预留给状态跟踪，尚未接入
+    should_orchestration_pause: bool        # 保留：预留给 HITL 中断，尚未接入
+    should_orchestration_stop: bool         # 保留：预留给显式停止，尚未接入
     response: Annotated[str, lambda _left, right: right]
     output_artifacts: Annotated[list, lambda left, right: left + right]
     total_tokens: Annotated[int, operator.add]

@@ -339,7 +339,19 @@ def grep_tool(
             "status": "error",
             "message": f"Cannot resolve workspace: {exc}"
         }, ensure_ascii=False)
-    
+
+    if not path or not path.strip():
+        return json.dumps({
+            "status": "error",
+            "message": "path must not be empty."
+        }, ensure_ascii=False)
+
+    if not pattern:
+        return json.dumps({
+            "status": "error",
+            "message": "pattern cannot be empty"
+        }, ensure_ascii=False)
+
     path = os.path.expanduser(path)
 
     try:
@@ -352,27 +364,15 @@ def grep_tool(
             "status": "error",
             "message": f"Invalid path: {exc}"
         }, ensure_ascii=False)
-        
+
     safe_root = safe_root.rstrip(os.sep) + os.sep
-    
+
     if not allow_external_reads and not (real_path + os.sep).startswith(safe_root):
         return json.dumps({
             "status": "error",
             "message": f"Access to '{path}' is denied."
         }, ensure_ascii=False)
-        
-    if not path or not path.strip():
-        return json.dumps({
-            "status": "error",
-            "message": "path must not be empty."
-        }, ensure_ascii=False)
 
-    if not pattern:
-        return json.dumps({
-            "status": "error",
-            "message": "pattern cannot be empty"
-        }, ensure_ascii=False)
-        
     if output_mode not in ("files_with_matches", "content", "count"):
         return json.dumps({
             "status": "error",

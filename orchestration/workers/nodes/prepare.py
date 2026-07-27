@@ -34,7 +34,7 @@ def make_prepare(name: str, system_prompt: str):
                 SystemMessage(content=system_prompt),
                 HumanMessage(content=description),
             ],
-            "start_at": str(t_start),
+            "worker_start_at": str(t_start),
         }
 
     return prepare_node

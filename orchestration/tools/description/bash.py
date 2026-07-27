@@ -9,6 +9,7 @@ TOOL_DESCRIPTION = {
         "- cmd: the command to run (e.g. 'pytest tests/ -v')\n"
         "- cwd: working directory relative to workspace (default '.')\n"
         "- timeout: max seconds before kill (default 30)\n"
+        "- allow_network: enable outbound network access (default True)\n"
         "\n"
         "Each call is isolated — cd does NOT persist. Always pass cwd:\n"
         "  cmd='npm install', cwd='frontend'   ← correct\n"
