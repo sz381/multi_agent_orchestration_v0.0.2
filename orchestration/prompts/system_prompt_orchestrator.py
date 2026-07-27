@@ -48,5 +48,5 @@ Task schema: {"task_id":"task_1","task_name":"...","task_description":"...","tas
 → bash("pip install -r requirements.txt") → bash("pytest -v") → end_orchestration
 
 "Research competitors A, B, C and build a comparison page"
-→ fanout_subagents([search A, search B, search C]) → end_orchestration
+→ fanout_subagents([researcher A, researcher B, researcher C]) → end_orchestration
 """

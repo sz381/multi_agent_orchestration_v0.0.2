@@ -1,28 +1,33 @@
 # Orchestration Architecture v0.0.2
 
 ```mermaid
+---
+config:
+  theme: dark
+  look: neo
+  layout: elk
+---
 graph TD
     Start([START]) --> Orchestrator
 
-    Orchestrator["orchestrator<br/>(llm_node)"]
+    Orchestrator["orchestrator<br/>LLM + tools"]
 
     Orchestrator -->|"should_stop"| End([END])
     Orchestrator -->|"should_pause"| Interrupt["interrupt<br/>human gate"]
-    Orchestrator -->|"!should_pause && tool_calls"| Tools["tools_node"]
-    Orchestrator -->|"!should_pause && no_tool_calls"| RouteNext{"route_next"}
+    Orchestrator -->|"response"| End
+    Orchestrator -->|"has_tool_calls"| Tools["tools<br/>ToolNode"]
+    Orchestrator -->|"sub_agent_round_tasks"| Send["Send API<br/>parallel fanout"]
 
     Tools -->|result| Orchestrator
+    Interrupt -->|"沟通后继续"| Orchestrator
 
-    RouteNext -->|"有 response"| End
-    RouteNext -->|"有 round_tasks"| Fanout
-
-    subgraph Fanout["fanout"]
-        Send["Send<br/>N workers"]
-        Workers["workers<br/>writer · reviewer · search · ..."]
-        Send --> Workers
+    subgraph Workers["Workers 子图（并行）"]
+        PG["programmer<br/>tools"]
+        RS["researcher<br/>tools"]
+        RV["reviewer<br/>tools"]
     end
 
-    Workers -->|结果汇总| Orchestrator
-
-    Interrupt -->|"沟通后继续"| Orchestrator
+    Send --> Workers
+    Workers -->|sub_agent_outputs| Collect["collect_worker_results<br/>barrier — 清空 round_tasks"]
+    Collect --> Orchestrator
 ```

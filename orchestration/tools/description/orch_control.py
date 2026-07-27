@@ -15,6 +15,6 @@ TOOL_DESCRIPTION = {
         "Parameters:\n"
         "- tasks: list of dicts, each with:\n"
         "    task_id, task_name, task_description, task_completion_status: false,\n"
-        "    subagent_id: 'programmer' | 'reviewer' | 'search', subagent_name\n"
+        "    subagent_id: 'programmer' | 'reviewer' | 'researcher', subagent_name\n"
     ),
 }

@@ -1,4 +1,4 @@
-"""LangChain tool definitions for the orchestrator.
+"""LangChain tool definitions for the programmer worker sub-agent.
 
 Thin wrappers that bind kernel implementations to ``@tool`` decorators.
 
@@ -10,26 +10,22 @@ Thin wrappers that bind kernel implementations to ``@tool`` decorators.
 ├── bash
 ├── web_search
 ├── fetch_web
-├── end_orchestration
-├── fanout_subagents
 ├── make_plan
 ├── edit_plan
 └── delete_plan
 """
 
 import json
-from typing import Any
 
-from langchain_core.tools import tool
 from langchain_core.messages import ToolMessage
-from langgraph.types import Command
+from langchain_core.tools import tool
 from langgraph.prebuilt import ToolRuntime
+from langgraph.types import Command
 
 from orchestration.tools.description.fs_mutate import TOOL_DESCRIPTION as FS_MUTATE_DESCRIPTION
 from orchestration.tools.description.fs_readonly import TOOL_DESCRIPTION as FS_READONLY_DESCRIPTION
-from orchestration.tools.description.orch_control import TOOL_DESCRIPTION as ORCH_CONTROL_DESCRIPTION
-from orchestration.tools.description.plan import TOOL_DESCRIPTION as PLAN_DESCRIPTION
 from orchestration.tools.description.web import TOOL_DESCRIPTION as WEB_DESCRIPTION
+from orchestration.tools.description.plan import TOOL_DESCRIPTION as PLAN_DESCRIPTION
 from orchestration.tools.description.bash import TOOL_DESCRIPTION as BASH_DESCRIPTION
 from orchestration.tools._kernel._fs_mutate import (
     str_replace as _str_replace,
@@ -40,20 +36,16 @@ from orchestration.tools._kernel._fs_readonly import (
     glob_tool as _glob_tool,
     grep_tool as _grep_tool,
 )
-from orchestration.tools._kernel._plan import (
-    make_plan as _make_plan,
-    edit_plan as _edit_plan,
-    delete_plan as _delete_plan,
-)
-from orchestration.tools._kernel._orch_control import (
-    end_orchestration as _end_orchestration,
-    fanout_subagents as _fanout_subagents,
-)
 from orchestration.tools._kernel._web import (
     web_search as _web_search,
     fetch_web as _fetch_web,
 )
 from orchestration.tools._kernel._bash import bash as _bash
+from orchestration.tools._kernel._plan import (
+    make_plan as _make_plan,
+    edit_plan as _edit_plan,
+    delete_plan as _delete_plan,
+)
 
 
 @tool("view_file", description=FS_READONLY_DESCRIPTION["view_file"])
@@ -184,52 +176,16 @@ async def fetch_web(
         prompt,
     )
 
-    
-@tool("end_orchestration", description=ORCH_CONTROL_DESCRIPTION["end_orchestration"])
-async def end_orchestration(
-    response: Any,
-    runtime: ToolRuntime
-) -> Command | str:
-    result = await _end_orchestration(response, runtime.state["response"])
-
-    r = json.loads(result)
-
-    if r["status"] == "error":
-        return r["message"]
-
-    return Command(update={
-        "response": response.strip(),
-        "messages": [ToolMessage(content=result, tool_call_id=runtime.tool_call_id)],
-    })
-
-
-@tool("fanout_subagents", description=ORCH_CONTROL_DESCRIPTION["fanout_subagents"])
-async def fanout_subagents(
-    tasks: Any, 
-    runtime: ToolRuntime
-) -> Command | str:
-    result = await _fanout_subagents(tasks, runtime.state["sub_agent_round_tasks"])
-
-    r = json.loads(result)
-
-    if r["status"] == "error":
-        return r["message"]
-
-    return Command(update={
-        "sub_agent_round_tasks": r["tasks"],
-        "messages": [ToolMessage(content=result, tool_call_id=runtime.tool_call_id)],
-    })
-
 
 @tool("make_plan", description=PLAN_DESCRIPTION["make_plan"])
 def make_plan(phases: list[dict], runtime: ToolRuntime) -> Command | str:
     result = _make_plan(phases)
-    
+
     r = json.loads(result)
-    
+
     if r["status"] == "error":
         return r["message"]
-    
+
     return Command(update={
         "plan": r["plan"],
         "messages": [ToolMessage(content=result, tool_call_id=runtime.tool_call_id)],
@@ -239,12 +195,12 @@ def make_plan(phases: list[dict], runtime: ToolRuntime) -> Command | str:
 @tool("edit_plan", description=PLAN_DESCRIPTION["edit_plan"])
 def edit_plan(updates: list[dict], runtime: ToolRuntime) -> Command | str:
     result = _edit_plan(updates, runtime.state["plan"] or [])
-    
+
     r = json.loads(result)
-    
+
     if r["status"] == "error":
         return r["message"]
-    
+
     return Command(update={
         "plan": r["plan"],
         "messages": [ToolMessage(content=result, tool_call_id=runtime.tool_call_id)],
@@ -258,20 +214,20 @@ def delete_plan(
     runtime: ToolRuntime = None,
 ) -> Command | str:
     result = _delete_plan(phase_id, runtime.state["plan"] or [], delete_all)
-    
+
     r = json.loads(result)
-    
+
     if r["status"] == "error":
         return r["message"]
-    
+
     return Command(update={
         "plan": r["plan"],
         "messages": [ToolMessage(content=result, tool_call_id=runtime.tool_call_id)],
     })
 
 
-"""All tools available to the orchestrator LLM node."""
-ORCHESTRATOR_TOOLS = [
+"""All tools available to the programmer worker."""
+PROGRAMMER_TOOLS = [
     view_file,
     glob_tool,
     grep_tool,
@@ -280,8 +236,6 @@ ORCHESTRATOR_TOOLS = [
     bash,
     web_search,
     fetch_web,
-    end_orchestration,
-    fanout_subagents,
     make_plan,
     edit_plan,
     delete_plan,
