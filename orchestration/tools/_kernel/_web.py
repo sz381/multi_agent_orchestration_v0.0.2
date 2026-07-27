@@ -1,3 +1,7 @@
+"""
+Web search and page fetch tools.
+"""
+
 import json
 import atexit
 import asyncio
@@ -34,39 +38,56 @@ logger = get_logger(__name__)
 
 
 async def _get_crawler() -> AsyncWebCrawler:
-    global _crawler, _crawler_started
+    """Return the singleton crawler instance, starting it if needed.
+
+    Uses double-checked locking to avoid starting multiple crawlers.
+    Registers an atexit hook for cleanup on process exit.
+    """
     
+    global _crawler, _crawler_started
+
     if _crawler is None:
         async with _crawler_lock:
             if _crawler is None:
                 crawler = AsyncWebCrawler()
-                
-                await crawler.start()       #  start
-                _crawler = crawler          #  再赋值（消除 TOCTOU）
-                
+
+                await crawler.start()
+                _crawler = crawler
+
                 if not _crawler_started:
                     _crawler_started = True
                     atexit.register(_close_crawler_sync)
-                    
+
     return _crawler
 
 
 async def _close_crawler():
-    global _crawler
+    """
+    Close and clear the singleton crawler.
+    """
     
+    global _crawler
+
     if _crawler is not None:
         await _crawler.close()
         _crawler = None
 
 
 async def close_crawler():
-    """Public shutdown: close the crawler while event loop is still alive."""
+    """
+    Public shutdown: close the crawler while the event loop is alive.
+    """
+    
     await _close_crawler()
 
 
 def _close_crawler_sync():
-    global _crawler
+    """
+    Synchronous wrapper for atexit — runs _close_crawler in a new event loop.
+    """
     
+    global _crawler
+
     if _crawler is not None:
         try:
             asyncio.run(_close_crawler())
@@ -76,17 +97,33 @@ def _close_crawler_sync():
             pass
 
 
-def _matches_domain(url: str, domains: list[str]) -> bool:
+def _matches_domain(
+    url: str, 
+    domains: list[str]
+) -> bool:
+    """Check whether a URL's hostname matches any domain in the list.
+
+    Matches exact hostname or any subdomain (e.g. ``example.com``
+    matches both ``example.com`` and ``sub.example.com``).
+    """
+    
     try:
         host = urlparse(url).hostname or ""
     except Exception:
         return False
-    
+
     return any(host == d or host.endswith("." + d) for d in domains)
 
 
-def _is_private_url(url: str) -> bool:
-    """SSRF 防护：阻止访问内网 / localhost / 特殊 IP"""
+def _is_private_url(
+    url: str
+) -> bool:
+    """SSRF protection: block private, loopback, and special IPs.
+
+    Blocks localhost, private ranges (10.x, 172.16.x, 192.168.x),
+    loopback (127.x), and unspecified addresses. Domain names pass
+    through — DNS resolution is left to the crawler.
+    """
     try:
         host = urlparse(url).hostname or ""
     except Exception:
@@ -99,12 +136,23 @@ def _is_private_url(url: str) -> bool:
         addr = ipaddress.ip_address(host)
         return addr.is_private or addr.is_loopback or addr.is_unspecified
     except ValueError:
-        pass   # 域名，不是 IP — 抓取时由 DNS 解析决定
+        pass
 
     return False
 
 
-def _format_web_search_results(raw_results: list[dict]) -> str:
+def _format_web_search_results(
+    raw_results: list[dict]
+) -> str:
+    """Format raw search results into a standardized JSON response.
+
+    Args:
+        raw_results: List of raw result dicts from DDG or Tavily.
+
+    Returns:
+        JSON with status, total_results, and indexed results list.
+    """
+    
     if not raw_results:
         return json.dumps({
             "status": "ok",
@@ -128,7 +176,23 @@ def _format_web_search_results(raw_results: list[dict]) -> str:
     }, ensure_ascii=False)
 
 
-async def _summarize_with_llm(content: str, prompt: str) -> str:
+async def _summarize_with_llm(
+    content: str, 
+    prompt: str
+) -> str:
+    """Summarize page content with a secondary LLM call.
+
+    Short content is returned as-is. Long content is truncated and
+    summarized via Secondary LLM. Falls back to raw content on failure.
+
+    Args:
+        content: Raw page content to summarize.
+        prompt: What the user wants to extract from the page.
+
+    Returns:
+        Summarized content, or the original if short/summarization fails.
+    """
+    
     if len(content) <= SUMMARIZE_LENGTH_THRESHOLD:
         return content
     
@@ -170,6 +234,18 @@ def web_search(
     allowed_domains: list[str] | None = None,
     blocked_domains: list[str] | None = None,
 ) -> str:
+    """Search the web via DuckDuckGo, with Tavily fallback.
+
+    Args:
+        query: Search keywords (2-500 chars).
+        max_results: Max results, clamped to 1-20.
+        allowed_domains: Restrict results to these domains.
+        blocked_domains: Exclude these domains from results.
+
+    Returns:
+        JSON with status, total_results, and a results list.
+    """
+    
     if allowed_domains is not None and blocked_domains is not None:
         return json.dumps({
             "status": "error", 
@@ -177,6 +253,7 @@ def web_search(
         }, ensure_ascii=False)
 
     query = query.strip()
+    
     if len(query) < 2:
         return json.dumps({
             "status": "error", 
@@ -210,6 +287,19 @@ async def fetch_web(
     url: str,
     prompt: str,
 ) -> str:
+    """Fetch and extract content from a web page.
+
+    Uses crawl4ai (headless Chromium) with Tavily extract fallback.
+    Long pages are summarized by a secondary LLM.
+
+    Args:
+        url: Full HTTPS URL to fetch.
+        prompt: What to extract from the page.
+
+    Returns:
+        Extracted markdown content, or a JSON error.
+    """
+    
     if not url or not url.strip():
         return json.dumps({
             "status": "error", 
@@ -282,6 +372,19 @@ def _fallback_search(
     blocked_domains: list[str] | None = None,
     ddg_error: str = "",
 ) -> str:
+    """Fallback search via Tavily when DuckDuckGo fails.
+
+    Args:
+        query: Search keywords.
+        max_results: Max results to return.
+        allowed_domains: Restrict results to these domains.
+        blocked_domains: Exclude these domains from results.
+        ddg_error: The error message from the failed DDG call.
+
+    Returns:
+        JSON with status, total_results, and a results list.
+    """
+    
     if not settings.tavily_api_key:
         return json.dumps({
             "status": "error", 
@@ -307,7 +410,15 @@ def _fallback_search(
         }, ensure_ascii=False)
 
 
-async def _fallback_fetch(url: str, prompt: str, crawl_error: Exception) -> str:
+async def _fallback_fetch(
+    url: str, 
+    prompt: str, 
+    crawl_error: Exception
+) -> str:
+    """Fallback page fetch via Tavily extract when crawl4ai fails.
+
+    Summarizes long results with the same LLM path as fetch_web.
+    """
     if not settings.tavily_api_key:
         return json.dumps({
             "status": "error", 

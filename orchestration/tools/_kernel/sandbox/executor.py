@@ -18,14 +18,15 @@ _SENSITIVE_ENV_KEYWORDS = [
     "CREDENTIAL", "PRIVATE_KEY",
 ]
 
-# 项目根目录 —— 用于过滤 agent 自身 .venv 不传给子进程
+# Project root — used to exclude the agent's own .venv from child processes
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 
-# 只在首次调用时探测，避免每次 bash 都跑 subprocess
+# Cache JAVA_HOME lookup so we only probe once
 _JAVA_HOME_CACHE: str | None = None
 
 
 def _is_sensitive_env(key: str) -> bool:
+    """Check if an env var name looks like a secret (API key, token, etc.)."""
     upper = key.upper()
     return any(pattern in upper for pattern in _SENSITIVE_ENV_KEYWORDS)
 
@@ -58,11 +59,9 @@ def _sandbox_path() -> str:
 
 
 def _strip_sandbox_msgs(stderr: str) -> tuple[str, int]:
-    """过滤 macOS Seatbelt 违规日志，保留业务 stderr。
+    """Filter macOS Seatbelt violation log lines from stderr.
 
-    macOS 上 sandbox-exec 违规表现为 "Operation not permitted" /
-    "Permission denied" 行（部分系统用 "Sandbox:" 前缀）。
-    过滤这些行并返回违规次数。
+    Returns the cleaned stderr and a count of violation lines removed.
     """
     lines = stderr.splitlines()
     kept = []
@@ -85,19 +84,18 @@ def _exec(profile_path: str, cmd: str, cwd: str, timeout: int) -> dict:
     Uses Popen + start_new_session so that on timeout the entire
     process group (bash + all children) can be killed atomically.
     """
-    # 不把 agent 自己的 venv 传进去，过滤掉 API_KEY 等密钥
-    # 为什么要过滤？如果不做这一步，子进程会继承 agent 的 VIRTUAL_ENV=/agent/.venv ，
-    # 导致用户的项目用的 Python 变成 agent 的 venv，依赖全乱。
+    # Don't leak the agent's venv or API keys into child processes.
+    # Without this, child inherits VIRTUAL_ENV and the user's project
+    # ends up using the agent's Python venv, breaking all dependencies.
     env = {k: v for k, v in os.environ.items() if k not in _SANDBOX_ENV_STRIP and not _is_sensitive_env(k)}
     
-    # PATH 排除 agent 的 .venv/bin，其他系统路径保留
-    # 如果没设 TMPDIR，默认 /tmp
-    # HOME 指向 /tmp，避免子进程读 ~/.gitconfig 等  
+    # Exclude the agent's .venv/bin from PATH. Default TMPDIR and HOME
+    # to /tmp so child processes don't read ~/.gitconfig etc.
     env["PATH"] = _sandbox_path()
     env.setdefault("TMPDIR", "/tmp")
     env.setdefault("HOME", "/tmp")
 
-    # macOS 的 /usr/bin/java 不指向任何 JDK，是个"占位符"。如果不设 JAVA_HOME ，Gradle/Maven 等工具会找不到 JDK。
+    # macOS /usr/bin/java is a stub — Gradle/Maven need JAVA_HOME set explicitly.
     if "JAVA_HOME" not in env:
         global _JAVA_HOME_CACHE
         if _JAVA_HOME_CACHE is None:
@@ -105,30 +103,26 @@ def _exec(profile_path: str, cmd: str, cwd: str, timeout: int) -> dict:
         if _JAVA_HOME_CACHE:
             env["JAVA_HOME"] = _JAVA_HOME_CACHE
 
-    # 构造命令
     args = ["sandbox-exec", "-f", profile_path, "bash", "-c", cmd]
 
-    # 启动进程
     proc = subprocess.Popen(
         args,
-        stdout=subprocess.PIPE,     # 捕获标准输出
-        stderr=subprocess.PIPE,     # 捕获标准错误
-        cwd=cwd,                    # 设置工作目录
-        env=env,                    # 净化后的环境变量
-        start_new_session=True,     # 新会话 = 新进程组，方便整组杀，防止孤儿进程
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        cwd=cwd,
+        env=env,
+        start_new_session=True,  # new session = new process group for clean kill
     )
 
     try:
-        # 等待 + 超时，communicate() 是阻塞的——等进程跑完或超时
         stdout_bytes, stderr_bytes = proc.communicate(timeout=timeout)
         exit_code = proc.returncode
         stdout = stdout_bytes.decode("utf-8", errors="replace") if stdout_bytes else ""
         stderr = stderr_bytes.decode("utf-8", errors="replace") if stderr_bytes else ""
         stderr, violations = _strip_sandbox_msgs(stderr)
         
-    # 超时处理
     except subprocess.TimeoutExpired:
-        # 杀整个进程组：bash + 所有子进程（npm install / pip 等）
+        # Kill the entire process group: bash + all children
         try:
             os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
         except ProcessLookupError:
@@ -154,7 +148,7 @@ def run(cmd: str, workspace: str, cwd: str = ".", timeout: int = 30, allow_netwo
         workspace: project root absolute path
         cwd: working directory (absolute path)
         timeout: timeout in seconds (default 30)
-        allow_network: True 用联网 profile，False 用断网 profile（默认 True）
+        allow_network: Use network profile if True, air-gapped if False.
 
     Returns:
         {"exit_code": int|None, "stdout": str, "stderr": str, "timeout": bool, "sandbox_violations": int}
@@ -165,7 +159,7 @@ def run(cmd: str, workspace: str, cwd: str = ".", timeout: int = 30, allow_netwo
         else generate_air_gapped(workspace=workspace)
     )
 
-    # 根据配置好的 profile 文件生成对应的临时的 “.sb” 沙盒配置文件，然后执行结束后 unlink。 
+    # Write the sandbox profile to a temp file, then clean up after execution.
     with tempfile.NamedTemporaryFile(mode="w", suffix=".sb", delete=False) as pf:
         pf.write(profile_text)
         profile_path = pf.name

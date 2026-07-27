@@ -1,3 +1,8 @@
+"""Plan management tools for the agents.
+
+Supports creating, editing, and deleting execution plan phases
+"""
+
 import json
 
 VALID_STATUSES = {"pending", "in_progress", "done"}
@@ -8,6 +13,18 @@ ALLOWED_UPDATE_FIELDS = {"phase_name", "phase_status", "phase_description"}
 def make_plan(
     phases: list[dict]
 ) -> str:
+    """Create a new execution plan from a list of phases.
+
+    Each phase must have phase_id, phase_name, phase_status, and
+    phase_description. Duplicate IDs are rejected. Max 12 phases.
+
+    Args:
+        phases: List of phase dicts with required fields.
+
+    Returns:
+        JSON with status and the validated plan.
+    """
+    
     if not isinstance(phases, list) or not phases:
         return json.dumps({
             "status": "error",
@@ -15,6 +32,7 @@ def make_plan(
         }, ensure_ascii=False)
 
     MAX_PHASES = 12
+    
     if len(phases) > MAX_PHASES:
         return json.dumps({
             "status": "error",
@@ -32,6 +50,7 @@ def make_plan(
             }, ensure_ascii=False)
 
         extra = set(p.keys()) - REQUIRED_FIELDS
+        
         if extra:
             return json.dumps({
                 "status": "error",
@@ -39,6 +58,7 @@ def make_plan(
             }, ensure_ascii=False)
 
         missing = REQUIRED_FIELDS - p.keys()
+        
         if missing:
             return json.dumps({
                 "status": "error",
@@ -46,11 +66,13 @@ def make_plan(
             }, ensure_ascii=False)
 
         pid = p["phase_id"]
+        
         if not isinstance(pid, str) or not pid.strip():
             return json.dumps({
                 "status": "error",
                 "message": f"phase[{i}] phase_id must be a non-empty string."
             }, ensure_ascii=False)
+            
         pid = pid.strip()
 
         if pid in seen_ids:
@@ -58,6 +80,7 @@ def make_plan(
                 "status": "error",
                 "message": f"phase[{i}] duplicate phase_id: '{pid}'."
             }, ensure_ascii=False)
+            
         seen_ids.add(pid)
 
         if not isinstance(p["phase_name"], str) or not p["phase_name"].strip():
@@ -67,6 +90,7 @@ def make_plan(
             }, ensure_ascii=False)
 
         status = p["phase_status"]
+        
         if status not in VALID_STATUSES:
             return json.dumps({
                 "status": "error",
@@ -97,6 +121,20 @@ def edit_plan(
     updates: list[dict], 
     plan: list[dict]
 ) -> str:
+    """Modify one or more phases in the plan.
+
+    Each update must reference an existing phase_id. Multiple phases
+    can be updated in a single call. Only phase_name, phase_status,
+    and phase_description are editable.
+
+    Args:
+        updates: List of dicts, each with phase_id and fields to change.
+        plan: The current plan to modify.
+
+    Returns:
+        JSON with status and the updated plan.
+    """
+    
     if not isinstance(updates, list) or not updates:
         return json.dumps({
             "status": "error",
@@ -123,6 +161,7 @@ def edit_plan(
             }, ensure_ascii=False)
 
         pid = u["phase_id"]
+        
         if not isinstance(pid, str) or not pid.strip():
             return json.dumps({
                 "status": "error",
@@ -130,6 +169,7 @@ def edit_plan(
             }, ensure_ascii=False)
 
         update_fields = {k: v for k, v in u.items() if k != "phase_id"}
+        
         if not update_fields:
             return json.dumps({
                 "status": "error",
@@ -137,6 +177,7 @@ def edit_plan(
             }, ensure_ascii=False)
 
         extra = set(update_fields.keys()) - ALLOWED_UPDATE_FIELDS
+        
         if extra:
             return json.dumps({
                 "status": "error",
@@ -165,6 +206,7 @@ def edit_plan(
                 }, ensure_ascii=False)
 
     plan_ids = {p["phase_id"] for p in plan}
+    
     for i, u in enumerate(updates):
         pid = u["phase_id"].strip()
         if pid not in plan_ids:
@@ -175,14 +217,15 @@ def edit_plan(
 
     new_plan = [dict(p) for p in plan]
     updated_ids = []
+    
     for u in updates:
         pid = u["phase_id"].strip()
         for p in new_plan:
             if p["phase_id"] == pid:
                 if "phase_name" in u:
-                    p["phase_name"] = u["phase_name"].strip()
+                    p["phase_name"] = u["phase_name"].strip()   
                 if "phase_status" in u:
-                    p["phase_status"] = u["phase_status"]
+                    p["phase_status"] = u["phase_status"] 
                 if "phase_description" in u:
                     p["phase_description"] = u["phase_description"].strip()
                 updated_ids.append(pid)
@@ -200,6 +243,17 @@ def delete_plan(
     plan: list[dict],
     delete_all: bool = False,
 ) -> str:
+    """Remove a phase or clear the entire plan.
+
+    Args:
+        phase_id: The phase to remove (ignored if delete_all is True).
+        plan: The current plan.
+        delete_all: If True, clears all phases.
+
+    Returns:
+        JSON with status and the updated plan.
+    """
+    
     if delete_all:
         return json.dumps({
             "status": "ok",
@@ -212,6 +266,7 @@ def delete_plan(
             "status": "error",
             "message": "phase_id must be a non-empty string."
         }, ensure_ascii=False)
+        
     phase_id = phase_id.strip()
 
     if not plan:

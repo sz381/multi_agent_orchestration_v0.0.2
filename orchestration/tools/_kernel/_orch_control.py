@@ -1,3 +1,7 @@
+"""
+Orchestration control tools: end a run or fan out to sub-agents.
+"""
+
 import asyncio
 import json
 
@@ -13,7 +17,21 @@ _lock_end = asyncio.Lock()
 _lock_fanout = asyncio.Lock()
 
 
-async def end_orchestration(response: any, current_response: str = "") -> str:
+async def end_orchestration(
+    response: any, 
+    current_response: str = ""
+) -> str:
+    """Deliver the final response and end the orchestration.
+
+    Only one call per turn is allowed.
+
+    Args:
+        response: The final answer string.
+        current_response: Whether end_orchestration was already called.
+
+    Returns:
+        JSON with status and message.
+    """
     async with _lock_end:
         try:
             if current_response:
@@ -54,7 +72,21 @@ async def end_orchestration(response: any, current_response: str = "") -> str:
             }, ensure_ascii=False)
 
 
-async def fanout_subagents(tasks: any, current_tasks: list = None) -> str:
+async def fanout_subagents(
+    tasks: any, 
+    current_tasks: list = None
+) -> str:
+    """Dispatch tasks to sub-agents for parallel execution.
+
+    Only one fanout per turn is allowed. 
+
+    Args:
+        tasks: List of task dicts with required fields.
+        current_tasks: Whether fanout was already called this turn.
+
+    Returns:
+        JSON with status and the validated task list.
+    """
     async with _lock_fanout:
         try:
             if current_tasks:
@@ -92,6 +124,7 @@ async def fanout_subagents(tasks: any, current_tasks: list = None) -> str:
                     }, ensure_ascii=False)
 
                 extra = set(t.keys()) - REQUIRED_TASK_FIELDS
+                
                 if extra:
                     return json.dumps({
                         "status": "error",
@@ -99,6 +132,7 @@ async def fanout_subagents(tasks: any, current_tasks: list = None) -> str:
                     }, ensure_ascii=False)
 
                 missing = REQUIRED_TASK_FIELDS - t.keys()
+                
                 if missing:
                     return json.dumps({
                         "status": "error",
@@ -106,11 +140,13 @@ async def fanout_subagents(tasks: any, current_tasks: list = None) -> str:
                     }, ensure_ascii=False)
 
                 tid = t["task_id"]
+                
                 if not isinstance(tid, str) or not tid.strip():
                     return json.dumps({
                         "status": "error",
                         "message": f"task[{i}] task_id must be a non-empty string."
                     }, ensure_ascii=False)
+                    
                 tid = tid.strip()
 
                 if tid in seen_ids:
@@ -118,6 +154,7 @@ async def fanout_subagents(tasks: any, current_tasks: list = None) -> str:
                         "status": "error",
                         "message": f"task[{i}] duplicate task_id: '{tid}'."
                     }, ensure_ascii=False)
+                    
                 seen_ids.add(tid)
 
                 if not isinstance(t["task_name"], str) or not t["task_name"].strip():
@@ -139,14 +176,16 @@ async def fanout_subagents(tasks: any, current_tasks: list = None) -> str:
                     }, ensure_ascii=False)
 
                 sid = t["subagent_id"]
+                
                 if not isinstance(sid, str) or not sid.strip():
                     return json.dumps({
                         "status": "error",
                         "message": f"task[{i}] subagent_id must be a non-empty string."
                     }, ensure_ascii=False)
+                    
                 sid = sid.strip()
-
                 prefix = sid.split("_", 1)[0]
+                
                 if prefix not in AVAILABLE_SUBAGENT_PREFIXES:
                     return json.dumps({
                         "status": "error",

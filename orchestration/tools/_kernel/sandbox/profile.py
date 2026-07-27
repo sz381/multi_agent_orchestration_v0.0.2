@@ -60,10 +60,10 @@ def _generate(workspace: str, allow_network: bool = True) -> str:
 
 
 def generate_default(workspace: str) -> str:
-    """联网模式：全局可读 + workspace 可写 + 全网通行。"""
+    """Network mode: global read + workspace write + full network access."""
     return _generate(workspace, allow_network=True)
 
 
 def generate_air_gapped(workspace: str) -> str:
-    """断网模式：全局可读 + workspace 可写 + 完全断网。"""
+    """Air-gapped mode: global read + workspace write + no network."""
     return _generate(workspace, allow_network=False)

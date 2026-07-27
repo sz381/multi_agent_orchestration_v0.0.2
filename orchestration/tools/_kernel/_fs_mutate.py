@@ -1,3 +1,10 @@
+"""Filesystem write tools with atomic replacement.
+
+Provides 
+str_replace (in-place text replacement)
+write_file (create/overwrite).
+"""
+
 import os
 import json
 import asyncio
@@ -10,6 +17,9 @@ _file_locks: dict[str, asyncio.Lock] = {}
 
 
 def _get_file_lock(file_path: str) -> asyncio.Lock:
+    """
+    Return a per-file async lock for serializing writes to the same path.
+    """
     return _file_locks.setdefault(file_path, asyncio.Lock())
 
 
@@ -24,6 +34,20 @@ async def str_replace(
     replace_all: bool = False,
     encoding: str = "utf-8",
 ) -> str:
+    """Replace exact text in a file atomically.
+
+    Requires old_str to match exactly once (or set replace_all=True).
+
+    Args:
+        file_path: Path to the file.
+        old_str: Exact text to replace (must match including whitespace).
+        new_str: Replacement text.
+        replace_all: Replace all occurrences (default False).
+        encoding: File encoding (default utf-8).
+
+    Returns:
+        JSON with status, path, and diff summary.
+    """
     if not file_path or not file_path.strip():
         return json.dumps({
             "status": "error",
@@ -137,10 +161,12 @@ async def str_replace(
             new_content = content.replace(old_str, new_str, 1)
 
         tmp_fd, tmp_path = tempfile.mkstemp(dir=os.path.dirname(file_path))
+        orig_mode = os.stat(file_path).st_mode
         
         try:
             with os.fdopen(tmp_fd, "w", encoding=encoding) as f:
                 f.write(new_content)
+            os.chmod(tmp_path, orig_mode)
             os.replace(tmp_path, file_path)
         except UnicodeEncodeError:
             return json.dumps({
@@ -178,6 +204,18 @@ async def write_file(
     content: str,
     encoding: str = "utf-8",
 ) -> str:
+    """Create or overwrite a file atomically.
+
+    Creates parent directories as needed. 
+
+    Args:
+        file_path: Path to the file.
+        content: Complete file content (max 1MB).
+        encoding: File encoding (default utf-8).
+
+    Returns:
+        JSON with status, path, and diff summary.
+    """
     if not file_path or not file_path.strip():
         return json.dumps({
             "status": "error",
@@ -282,10 +320,13 @@ async def write_file(
             }, ensure_ascii=False)
 
         tmp_fd, tmp_path = tempfile.mkstemp(dir=os.path.dirname(file_path))
+        orig_mode = os.stat(file_path).st_mode if existed else None
         
         try:
             with os.fdopen(tmp_fd, "w", encoding=encoding) as f:
                 f.write(content)
+            if orig_mode is not None:
+                os.chmod(tmp_path, orig_mode)
             os.replace(tmp_path, file_path)
         except OSError as exc:
             return json.dumps({

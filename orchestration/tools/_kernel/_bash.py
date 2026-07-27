@@ -1,3 +1,8 @@
+"""Bash tool: execute shell commands inside a macOS Seatbelt sandbox.
+
+Commands are validated against a blocklist before execution.
+"""
+
 import os
 import re
 import json
@@ -30,6 +35,17 @@ def bash(
     timeout: int = 30,
     allow_network: bool = True,
 ) -> str:
+    """Execute a shell command inside the Seatbelt sandbox.
+
+    Args:
+        cmd: The shell command to run.
+        cwd: Working directory relative to workspace (default '.').
+        timeout: Max seconds before kill (default 30).
+        allow_network: Whether to allow network access (default True).
+
+    Returns:
+        JSON with exit_code, stdout, stderr, elapsed, and sandbox_violations.
+    """
     for pattern in BLACKLIST_PATTERNS:
         if re.search(pattern, cmd):
             return json.dumps({

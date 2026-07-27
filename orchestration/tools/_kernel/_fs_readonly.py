@@ -1,3 +1,11 @@
+"""Read-only filesystem tools for exploring the workspace.
+
+Provides 
+view_file (read with line numbers), 
+glob_tool (pattern matching), and
+grep_tool (regex search).
+"""
+
 import os
 import regex as re
 import json
@@ -14,6 +22,20 @@ def view_file(
     encoding: str = "utf-8",
     allow_external_reads: bool = False,
 ) -> str:
+    """Read a file with line numbers, optionally starting at an offset.
+
+    Supports large files by reading up to 1MB and chunking via offset.
+
+    Args:
+        file_path: Path to the file.
+        offset: First line to show (1-based, default 1).
+        limit: Max lines to return (1-1000, default 100).
+        encoding: File encoding (default utf-8).
+        allow_external_reads: Allow reading outside the workspace.
+
+    Returns:
+        JSON with status, line data, and pagination info.
+    """
     if not isinstance(limit, int) or limit < 1 or limit > 1000:
         return json.dumps({
             "status": "error",
@@ -181,6 +203,16 @@ def glob_tool(
     dir_path: str = ".",
     allow_external_reads: bool = False,
 ) -> str:
+    """Find files matching a glob pattern.
+
+    Args:
+        pattern: Glob pattern (e.g. ``**/*.py``). Supports ``**`` for recursion.
+        dir_path: Directory to search (default '.').
+        allow_external_reads: Allow searching outside the workspace.
+
+    Returns:
+        JSON with matched file paths and count.
+    """
     try:
         safe_root = os.path.realpath(get_workspace())
     except Exception as exc:
@@ -282,6 +314,24 @@ def grep_tool(
     encoding: str = "utf-8",
     allow_external_reads: bool = False,
 ) -> str:
+    """Search file contents with regex.
+
+    Args:
+        pattern: Regex pattern to search for.
+        path: File or directory to search (default '.').
+        glob_pattern: Filter files by name before searching.
+        output_mode: One of ``files_with_matches``, ``content``, or ``count``.
+        context_lines: Lines of context around each match (0-10).
+        head_limit: Max results (0-1000, 0 = unlimited).
+        offset: Skip first N results.
+        case_sensitive: Whether to match case (default True).
+        multiline: Whether ``.`` matches newlines (default False).
+        encoding: File encoding (default utf-8).
+        allow_external_reads: Allow searching outside the workspace.
+
+    Returns:
+        JSON with matches, count, and pagination info.
+    """
     try:
         safe_root = os.path.realpath(get_workspace())
     except Exception as exc:
