@@ -9,18 +9,26 @@ import os
 import json
 import asyncio
 import tempfile
+import weakref
 
 from utils.common import get_workspace
 
 
-_file_locks: dict[str, asyncio.Lock] = {}
+_file_locks: weakref.WeakValueDictionary = weakref.WeakValueDictionary()
 
 
 def _get_file_lock(file_path: str) -> asyncio.Lock:
     """
     Return a per-file async lock for serializing writes to the same path.
+
+    Uses WeakValueDictionary so locks are GC'd when no coroutine holds a
+    reference to them — prevents unbounded growth across long-running sessions.
     """
-    return _file_locks.setdefault(file_path, asyncio.Lock())
+    lock = _file_locks.get(file_path)
+    if lock is None:
+        lock = asyncio.Lock()
+        _file_locks[file_path] = lock
+    return lock
 
 
 MAX_WRITE_SIZE = 1 * 1024 * 1024

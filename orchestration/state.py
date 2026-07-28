@@ -54,7 +54,6 @@ class OrchestrationState(TypedDict):
         user_query:                     The original user request.
         plan:                           Execution plan phases. Replaced wholesale on update.
         sub_agent_round_tasks:          Tasks dispatched in the current fanout round.
-        sub_agent_task:                 The current sub-agent task being processed.
         sub_agent_outputs:              Merged outputs from completed sub-agents.
         orchestration_status:           Current status string.
         should_orchestration_pause:     Flag to pause and wait for human input.
@@ -73,7 +72,6 @@ class OrchestrationState(TypedDict):
     user_query: str
     plan: Annotated[list[Plan] | None, lambda _left, right: right]
     sub_agent_round_tasks: Annotated[list[SubAgentRoundTaskItem], lambda _left, right: right]
-    sub_agent_task: Annotated[SubAgentRoundTaskItem, lambda _left, right: right]
     sub_agent_outputs: Annotated[dict, lambda left, right: {**left, **right}]
     orchestration_status: str               # 保留：预留给状态跟踪，尚未接入
     should_orchestration_pause: bool        # 保留：预留给 HITL 中断，尚未接入

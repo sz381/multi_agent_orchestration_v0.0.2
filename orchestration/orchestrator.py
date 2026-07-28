@@ -50,17 +50,7 @@ async def orchestrator_node(state: OrchestrationState) -> dict:
 
         response = await _model_with_tools.ainvoke(messages)
 
-        tool_names = [tc.get("name") for tc in (response.tool_calls or [])]
-        # print(f"[DEBUG orchestrator_node] tool_calls={tool_names}  content_len={len(response.content) if response.content else 0}", flush=True)
-
-        # Fallback: if the LLM responds with content but no tool_calls
-        # and end_orchestration hasn't been called, auto-set the response
-        # field so the graph ends cleanly instead of silently.
-        result = {"messages": [response]}
-        if response.content and not response.tool_calls and not state.get("response"):
-            result["response"] = response.content
-
-        return result
+        return {"messages": [response]}
 
     except Exception as e:
         logger.error(f"Orchestrator invocation failed: {e}", exc_info=True)

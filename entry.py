@@ -151,7 +151,7 @@ async def main():
     graph = build_graph()
 
     state = _safe_initial_state(
-        user_query="帮我做一个实习生管理系统，创建一个项目目录叫做 itmanager，需要：1. 后端：FastAPI + SQLite，包含实习生 CRUD、部门管理、考勤记录 3 个模块的 REST API  2. 前端：React + TypeScript，包含实习生列表页、详情页、考勤打卡页  3. 一份 README.md 说明如何启动。 然后写完代码之后，并发2个reseacher帮我搜索 鸿蒙 7 的资料，感谢！",
+        user_query="你去 /Users/shenweizhang/Desktop/ai/test （空文件夹）去测试一下 写入工具 (write_file, str_replace 的并发性)，最最最最最严格的测试，因为我换了个 weekvalue dictionary",
         conversation_id="demo_001",
         orchestration_id="demo_001",
     )

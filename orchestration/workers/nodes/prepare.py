@@ -29,9 +29,18 @@ def make_prepare(name: str, system_prompt: str):
         logger = get_logger(__name__)
         logger.info("worker_start", worker=name, task_id=task_id)
 
+        system_content = system_prompt
+        worker_plan = state.get("worker_plan") or []
+        if worker_plan:
+            plan_lines = ["\n## CURRENT PLAN"]
+            for p in worker_plan:
+                icon = {"pending": "○", "in_progress": "◐", "done": "●"}.get(p["phase_status"], "?")
+                plan_lines.append(f"  {icon} [{p['phase_id']}] {p['phase_name']}")
+            system_content += "\n".join(plan_lines)
+
         return {
             "messages": [
-                SystemMessage(content=system_prompt),
+                SystemMessage(content=system_content),
                 HumanMessage(content=description),
             ],
             "worker_start_at": str(t_start),

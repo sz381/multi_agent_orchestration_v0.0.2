@@ -209,9 +209,9 @@ def edit_plan(updates: list[dict], runtime: ToolRuntime) -> Command | str:
 
 @tool("delete_plan", description=PLAN_DESCRIPTION["delete_plan"])
 def delete_plan(
+    runtime: ToolRuntime,
     phase_id: str = "",
     delete_all: bool = False,
-    runtime: ToolRuntime = None,
 ) -> Command | str:
     result = _delete_plan(phase_id, runtime.state.get("worker_plan") or [], delete_all)
 
