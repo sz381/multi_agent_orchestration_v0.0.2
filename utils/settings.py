@@ -11,7 +11,9 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-_logger = logging.getLogger(__name__)
+import structlog
+
+_logger = structlog.get_logger(__name__)
 
 
 class Settings(BaseSettings):
@@ -67,7 +69,7 @@ def setup_langsmith_tracing() -> None:
         os.environ["LANGSMITH_PROJECT"] = settings.langsmith_project
         os.environ["LANGSMITH_ENDPOINT"] = settings.langsmith_endpoint
         os.environ["LANGSMITH_TRACING"] = "true"
-        _logger.info("LangSmith automatic tracking is Enabled, project=%s", settings.langsmith_project)
+        _logger.info("LangSmith automatic tracking is Enabled", project=settings.langsmith_project)
     else:
         _logger.info("LangSmith automatic tracking is Disabled")
 

@@ -4,6 +4,7 @@ Initialises the model, bind tools, and exposes ``orchestrator_node`` and ``inter
 """
 
 from langchain_core.messages import SystemMessage, AIMessage
+from langchain_core.runnables import RunnableConfig
 
 from orchestration.state import OrchestrationState
 from orchestration.prompts.system_prompt_orchestrator import ORCHESTRATOR_SYSTEM_PROMPT
@@ -22,7 +23,7 @@ _model = init_model(
 _model_with_tools = _model.bind_tools(ORCHESTRATOR_TOOLS)
 
 
-async def orchestrator_node(state: OrchestrationState) -> dict:
+async def orchestrator_node(state: OrchestrationState, config: RunnableConfig) -> dict:
     """Invoke the LLM with the system prompt, plan status, and message history.
 
     The current plan is injected into the system prompt so the orchestrator
@@ -48,7 +49,7 @@ async def orchestrator_node(state: OrchestrationState) -> dict:
         history = state["messages"]
         messages = [system_msg] + history
 
-        response = await _model_with_tools.ainvoke(messages)
+        response = await _model_with_tools.ainvoke(messages, config=config)
 
         return {"messages": [response]}
 

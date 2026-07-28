@@ -15,10 +15,15 @@ def make_llm(tools: list | None = None):
         Callable[[dict, RunnableConfig], dict] — async LangGraph node function
     """
     async def llm_node(state: dict, config: RunnableConfig) -> dict:
-        model = init_model(streaming=True, temperature=0.3)
+        model = init_model(
+            model_name="deepseek-v4-flash",
+            temperature=0.3,
+            max_tokens=16384,
+            streaming=True,
+        )
         if tools:
             model = model.bind_tools(tools)
-        response = await model.ainvoke(state["messages"])
+        response = await model.ainvoke(state["messages"], config=config)
         return {"messages": [response]}
 
     return llm_node

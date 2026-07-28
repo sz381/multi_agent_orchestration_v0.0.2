@@ -5,6 +5,7 @@ from langchain_core.messages import AIMessageChunk, HumanMessage, ToolMessage
 
 from orchestration.graph import build_graph
 from orchestration.tools._kernel._web import close_crawler
+from utils.callbacks import create_orchestration_config
 
 
 def _safe_initial_state(**overrides) -> dict:
@@ -163,7 +164,7 @@ async def main():
     _ended_properly = False
 
     async for mode, data in graph.astream(
-        state, stream_mode=["updates", "messages"]
+        state, config=create_orchestration_config(), stream_mode=["updates", "messages"]
     ):
         if mode == "updates":
             for node_name, output in data.items():
@@ -177,7 +178,7 @@ async def main():
                         continue
                     for msg in output.get("messages", []):
                         if isinstance(msg, ToolMessage):
-                            print(f"  TOOL [DONE] {msg.name}  {_fmt_tool_result(msg)}", flush=True)
+                            # print(f"  TOOL [DONE] {msg.name}  {_fmt_tool_result(msg)}", flush=True)
                             if msg.name in ("make_plan", "edit_plan", "delete_plan"):
                                 try:
                                     r = json.loads(msg.content)
@@ -216,11 +217,11 @@ async def main():
                         if name := tc.get("name"):
                             if name == "end_orchestration":
                                 _ended_properly = True
-                            if _first_tool_in_batch:
-                                print(f"\n  TOOL [EXECUTING] {name}", flush=True)
-                                _first_tool_in_batch = False
-                            else:
-                                print(f"  TOOL [EXECUTING] {name}", flush=True)
+                            # if _first_tool_in_batch:
+                            #     print(f"\n  TOOL [EXECUTING] {name}", flush=True)
+                            #     _first_tool_in_batch = False
+                            # else:
+                            #     print(f"  TOOL [EXECUTING] {name}", flush=True)
                     continue
 
                 content = msg_chunk.content

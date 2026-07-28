@@ -190,7 +190,11 @@ async def end_orchestration(
     response: Any,
     runtime: ToolRuntime
 ) -> Command | str:
-    result = await _end_orchestration(response, runtime.state["response"])
+    result = await _end_orchestration(
+        response,
+        runtime.state["response"],
+        plan=runtime.state.get("plan"),
+    )
 
     r = json.loads(result)
 

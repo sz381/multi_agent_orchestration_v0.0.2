@@ -19,21 +19,41 @@ _lock_fanout = asyncio.Lock()
 
 async def end_orchestration(
     response: any, 
-    current_response: str = ""
+    current_response: str = "",
+    plan: list | None = None,
 ) -> str:
     """Deliver the final response and end the orchestration.
 
-    Only one call per turn is allowed.
+    Only one call per turn is allowed. Refuses to end if the plan
+    has unfinished phases.
 
     Args:
         response: The final answer string.
         current_response: Whether end_orchestration was already called.
+        plan: Current plan phases (optional). If provided, all must be
+            ``done`` before ending.
 
     Returns:
         JSON with status and message.
     """
+
     async with _lock_end:
         try:
+            if plan:
+                pending = [p for p in plan if p.get("phase_status") != "done"]
+
+                if pending:
+                    pending_ids = [p["phase_id"] for p in pending]
+
+                    return json.dumps({
+                        "status": "error",
+                        "message": (
+                            f"Cannot end orchestration — {len(pending)} phase(s) "
+                            f"still pending: {pending_ids}. Complete them or "
+                            f"delete them before calling end_orchestration."
+                        ),
+                    }, ensure_ascii=False)
+
             if current_response:
                 return json.dumps({
                     "status": "error",
@@ -87,6 +107,7 @@ async def fanout_subagents(
     Returns:
         JSON with status and the validated task list.
     """
+    
     async with _lock_fanout:
         try:
             if current_tasks:
