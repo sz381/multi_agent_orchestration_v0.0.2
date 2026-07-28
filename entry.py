@@ -152,7 +152,7 @@ async def main():
     graph = build_graph()
 
     state = _safe_initial_state(
-        user_query="你去 /Users/shenweizhang/Desktop/ai/test （空文件夹）去测试一下 写入工具 (write_file, str_replace 的并发性)，最最最最最严格的测试，因为我换了个 weekvalue dictionary",
+        user_query="你去 /Users/shenweizhang/Desktop/ai/test （空文件夹）去测试一下 写入工具 (write_file, str_replace 的并发性)，最最最最最严格的测试，因为我换了个 weekvalue dictionary，不要自己测试，fanout subagent!!!",
         conversation_id="demo_001",
         orchestration_id="demo_001",
     )

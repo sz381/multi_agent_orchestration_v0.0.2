@@ -18,6 +18,7 @@ from crawl4ai.markdown_generation_strategy import DefaultMarkdownGenerator
 
 from utils.settings import settings
 from utils.logging import get_logger
+from utils.retry import ainvoke_with_retry
 from orchestration.tools.description.web import WEB_SUMMARIZE_TEMPLATE
 
 MAX_SEARCH_RESULTS          = 20
@@ -217,7 +218,7 @@ async def _summarize_with_llm(
         )
         
         text = WEB_SUMMARIZE_TEMPLATE.format(prompt=prompt, content=content)
-        response = await summarizer.ainvoke([HumanMessage(content=text)])
+        response = await ainvoke_with_retry(summarizer, [HumanMessage(content=text)])
         result = response.content
         
         logger.debug("web_summarize_done", before=len(content), after=len(result))

@@ -1,4 +1,4 @@
-"""LangChain tool definitions for the reviewer worker sub-agent.
+"""LangChain tool definitions for the reviewer sub-agent.
 
 Thin wrappers that bind kernel implementations to ``@tool`` decorators.
 
@@ -142,7 +142,7 @@ async def fetch_web(
     )
 
 
-"""All tools available to the reviewer worker."""
+"""All tools available to the reviewer sub-agent."""
 REVIEWER_TOOLS = [
     view_file,
     glob_tool,

@@ -21,13 +21,13 @@ class SubAgentState(TypedDict):
     output_artifacts: Annotated[list, operator.add]
     sub_agent_outputs: Annotated[dict, lambda left, right: {**left, **right}]
     total_tokens: int
-    worker_start_at: str
-    worker_time_elapsed: float
-    worker_error_message: str
+    sub_agent_start_at: str
+    sub_agent_time_elapsed: float
+    sub_agent_error_message: str
 
 
 class ProgrammerSubAgentState(SubAgentState):
-    worker_plan: Annotated[list[Plan] | None, lambda _left, right: right]
+    sub_agent_plan: Annotated[list[Plan] | None, lambda _left, right: right]
 
 
 class ResearcherSubAgentState(SubAgentState):

@@ -21,7 +21,7 @@ def init_model(
 
     Results are cached via ``lru_cache`` — identical argument combinations
     return the same instance, avoiding repeated object construction across
-    orchestrator turns and worker fanout rounds.
+    orchestrator turns and sub-agent fanout rounds.
     """
     return ChatOpenAI(
         model=model_name,

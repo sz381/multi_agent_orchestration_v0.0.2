@@ -135,6 +135,7 @@ async def fanout_subagents(
                 }, ensure_ascii=False)
 
             seen_ids: set[str] = set()
+            seen_subagent_ids: set[str] = set()
             clean_tasks: list[dict] = []
 
             for i, t in enumerate(tasks):
@@ -218,6 +219,14 @@ async def fanout_subagents(
                         "status": "error",
                         "message": f"task[{i}] subagent_name must be a non-empty string."
                     }, ensure_ascii=False)
+
+                sid_stripped = sid.strip()
+                if sid_stripped in seen_subagent_ids:
+                    return json.dumps({
+                        "status": "error",
+                        "message": f"task[{i}] duplicate subagent_id: '{sid_stripped}'. Each sub-agent can only handle one task per fanout."
+                    }, ensure_ascii=False)
+                seen_subagent_ids.add(sid_stripped)
 
                 clean_tasks.append({
                     "task_id": tid,

@@ -1,4 +1,4 @@
-"""LangChain tool definitions for the programmer worker sub-agent.
+"""LangChain tool definitions for the programmer sub-agent.
 
 Thin wrappers that bind kernel implementations to ``@tool`` decorators.
 
@@ -187,14 +187,14 @@ def make_plan(phases: list[dict], runtime: ToolRuntime) -> Command | str:
         return r["message"]
 
     return Command(update={
-        "worker_plan": r["plan"],
+        "sub_agent_plan": r["plan"],
         "messages": [ToolMessage(content=result, tool_call_id=runtime.tool_call_id)],
     })
 
 
 @tool("edit_plan", description=PLAN_DESCRIPTION["edit_plan"])
 def edit_plan(updates: list[dict], runtime: ToolRuntime) -> Command | str:
-    result = _edit_plan(updates, runtime.state.get("worker_plan") or [])
+    result = _edit_plan(updates, runtime.state.get("sub_agent_plan") or [])
 
     r = json.loads(result)
 
@@ -202,7 +202,7 @@ def edit_plan(updates: list[dict], runtime: ToolRuntime) -> Command | str:
         return r["message"]
 
     return Command(update={
-        "worker_plan": r["plan"],
+        "sub_agent_plan": r["plan"],
         "messages": [ToolMessage(content=result, tool_call_id=runtime.tool_call_id)],
     })
 
@@ -213,7 +213,7 @@ def delete_plan(
     phase_id: str = "",
     delete_all: bool = False,
 ) -> Command | str:
-    result = _delete_plan(phase_id, runtime.state.get("worker_plan") or [], delete_all)
+    result = _delete_plan(phase_id, runtime.state.get("sub_agent_plan") or [], delete_all)
 
     r = json.loads(result)
 
@@ -221,12 +221,12 @@ def delete_plan(
         return r["message"]
 
     return Command(update={
-        "worker_plan": r["plan"],
+        "sub_agent_plan": r["plan"],
         "messages": [ToolMessage(content=result, tool_call_id=runtime.tool_call_id)],
     })
 
 
-"""All tools available to the programmer worker."""
+"""All tools available to the programmer sub-agent."""
 PROGRAMMER_TOOLS = [
     view_file,
     glob_tool,

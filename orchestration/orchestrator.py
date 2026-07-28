@@ -11,6 +11,7 @@ from orchestration.prompts.system_prompt_orchestrator import ORCHESTRATOR_SYSTEM
 from orchestration.tools.bundles.orchestrator import ORCHESTRATOR_TOOLS
 from utils.model import init_model
 from utils.logging import get_logger
+from utils.retry import ainvoke_with_retry
 
 logger = get_logger(__name__)
 
@@ -49,7 +50,7 @@ async def orchestrator_node(state: OrchestrationState, config: RunnableConfig) -
         history = state["messages"]
         messages = [system_msg] + history
 
-        response = await _model_with_tools.ainvoke(messages, config=config)
+        response = await ainvoke_with_retry(_model_with_tools, messages, config=config)
 
         return {"messages": [response]}
 

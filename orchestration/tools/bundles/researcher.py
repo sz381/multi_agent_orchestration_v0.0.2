@@ -1,4 +1,4 @@
-"""LangChain tool definitions for the researcher worker sub-agent.
+"""LangChain tool definitions for the researcher sub-agent.
 
 Thin wrappers that bind kernel implementations to ``@tool`` decorators.
 
@@ -77,7 +77,7 @@ async def fetch_web(
     )
 
 
-"""All tools available to the researcher worker."""
+"""All tools available to the researcher sub-agent."""
 RESEARCHER_TOOLS = [
     view_file,
     write_file,

@@ -4,6 +4,7 @@ Summarize node factory — extract final response, artifacts, and metadata.
 
 import time
 
+import structlog
 from langchain_core.messages import AIMessage
 
 from utils.logging import get_logger
@@ -35,19 +36,19 @@ def _extract_artifacts(messages: list) -> list[str]:
 
 
 def make_summarize(name: str):
-    """Create a summarize node that extracts worker results.
+    """Create a summarize node that extracts sub-agent results.
 
     1. Find last AIMessage.content → response
     2. Extract file artifacts from tool calls
     3. Elapsed time + log completion
 
     Args:
-        name: worker name for logging (e.g. "programmer")
+        name: sub-agent type for logging (e.g. "programmer")
 
     Returns:
         Callable[[dict], dict] — LangGraph node function
     """
-    def summarize_node(state: dict) -> dict:
+    async def summarize_node(state: dict) -> dict:
         task_id = state["task_id"]
 
         final_text = ""
@@ -58,20 +59,28 @@ def make_summarize(name: str):
 
         artifacts = _extract_artifacts(state["messages"])
 
-        start_at = float(state.get("worker_start_at", 0))
+        start_at = float(state.get("sub_agent_start_at", 0))
         elapsed = time.time() - start_at if start_at else 0
 
         logger = get_logger(__name__)
         logger.info(
-            "worker_done",
-            worker=name,
+            "sub_agent_done",
+            sub_agent=name,
+            sub_agent_id=state.get("sub_agent_id", ""),
+            sub_agent_name=state.get("sub_agent_name", ""),
             task_id=task_id,
+            task_name=state.get("task_name", ""),
             elapsed=round(elapsed, 1),
             artifacts_count=len(artifacts),
             status="success" if final_text else "empty_output",
         )
 
         print(f"  [{name}] {task_id}  done  {elapsed:.1f}s")
+
+        # Clean up structlog contextvars bound in prepare_node.
+        structlog.contextvars.unbind_contextvars(
+            "sub_agent_name", "sub_agent_id", "task_id", "task_name",
+        )
 
         token_used = state.get("total_tokens", 0)
 
@@ -80,7 +89,9 @@ def make_summarize(name: str):
             "sub_agent_outputs": {
                 task_id: {
                     "task_id": task_id,
-                    "worker": name,
+                    "sub_agent": name,
+                    "sub_agent_id": state.get("sub_agent_id", ""),
+                    "sub_agent_name": state.get("sub_agent_name", ""),
                     "result_summary": final_text,
                     "artifacts": artifacts,
                     "token_used": token_used,
@@ -89,8 +100,8 @@ def make_summarize(name: str):
                 }
             },
             "total_tokens": token_used,
-            "worker_time_elapsed": round(elapsed, 1),
-            "worker_error_message": "" if final_text else "empty output",
+            "sub_agent_time_elapsed": round(elapsed, 1),
+            "sub_agent_error_message": "" if final_text else "empty output",
         }
 
     return summarize_node

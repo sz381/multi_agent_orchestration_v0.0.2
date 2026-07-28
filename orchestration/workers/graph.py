@@ -1,5 +1,5 @@
 """
-ReAct agent factory for worker sub-agents.
+ReAct agent factory for sub-agents.
 
 Merges graph builder + agent assembler into one module.
 
@@ -69,15 +69,15 @@ def build_react_agent(
     system_prompt: str,
     state_cls: type = SubAgentState,
 ):
-    """Build a ReAct agent sub-graph for a worker.
+    """Build a ReAct agent sub-graph for a sub-agent.
 
     When tools are non-empty:  prepare → llm ↔ tools → summarize
     When tools are empty:      prepare → llm → summarize
 
     Args:
-        name:          worker name for logging (e.g. "programmer")
+        name:          sub-agent type for logging (e.g. "programmer")
         tools:         @tool-decorated functions, or None/[] for no agents    
-        system_prompt: worker's system prompt string
+        system_prompt: sub-agent's system prompt string
         state_cls:     TypedDict state schema (default SubAgentState)
 
     Returns:

@@ -2,10 +2,10 @@
 
 Builds the main orchestration loop:
     START → orchestrator → tools → fanout (Send) or back
-    workers → collect → orchestrator
+    sub-agents → collect → orchestrator
     interrupt → orchestrator
 
-Uses LangGraph Send API for dynamic parallel worker dispatch.
+Uses LangGraph Send API for dynamic parallel sub-agent dispatch.
 Fanout is dispatched immediately after tools execution — the orchestrator
 never gets a turn with pending tasks.
 """
@@ -66,7 +66,7 @@ def route_after_tools(state: OrchestrationState):
     new tool calls in the same turn.
 
     Returns:
-        str for single-target routing, list[Send] for fanout to multiple workers.
+        str for single-target routing, list[Send] for fanout to multiple sub-agents.
     """
     tasks = state.get("sub_agent_round_tasks") or []
     # print(f"\n[DEBUG route_after_tools] sub_agent_round_tasks={tasks}  plan={[(p.get('phase_id'), p.get('phase_status')) for p in (state.get('plan') or [])]}  response={state.get('response')!r}", flush=True)
@@ -88,8 +88,8 @@ def route_after_tools(state: OrchestrationState):
     return "orchestrator"
 
 
-def _collect_worker_results(state: OrchestrationState) -> dict:
-    """Clear dispatched tasks after workers complete.
+def _collect_sub_agent_results(state: OrchestrationState) -> dict:
+    """Clear dispatched tasks after sub-agents complete.
 
     Without this, the route function would re-dispatch the same tasks
     on every subsequent orchestrator turn (infinite loop).
@@ -105,7 +105,7 @@ def build_graph():
     builder.add_node("orchestrator", orchestrator_node)
     builder.add_node("tools", ToolNode(list(ORCHESTRATOR_TOOLS)))
     builder.add_node("interrupt", interrupt_node)
-    builder.add_node("collect_worker_results", _collect_worker_results)
+    builder.add_node("collect_sub_agent_results", _collect_sub_agent_results)
 
     SUBAGENT_MAP = {
         "programmer": PROGRAMMER_GRAPH,
@@ -119,8 +119,8 @@ def build_graph():
     builder.add_edge("interrupt", "orchestrator")
 
     for name in SUBAGENT_MAP:
-        builder.add_edge(name, "collect_worker_results")
-    builder.add_edge("collect_worker_results", "orchestrator")
+        builder.add_edge(name, "collect_sub_agent_results")
+    builder.add_edge("collect_sub_agent_results", "orchestrator")
 
     builder.add_conditional_edges(
         "orchestrator",
