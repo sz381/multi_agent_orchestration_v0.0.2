@@ -101,7 +101,7 @@ class OrchestrationCallBack(AsyncCallbackHandler):
         """Log tool start and push event to SSE bridge.
 
         Args:
-            serialized: Serialized tool definition (contains ``name`` key).
+            serialized: Serialized tool definition.
             input_str: The tool input as a string.
             run_id: Unique ID of this run.
             parent_run_id: ID of the parent run, if any.

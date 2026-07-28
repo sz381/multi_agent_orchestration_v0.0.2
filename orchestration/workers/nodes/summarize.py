@@ -1,4 +1,6 @@
-"""Summarize node factory — extract final response, artifacts, and metadata."""
+"""
+Summarize node factory — extract final response, artifacts, and metadata.
+"""
 
 import time
 

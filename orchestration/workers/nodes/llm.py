@@ -1,4 +1,6 @@
-"""LLM node factory — model invocation with optional tool binding."""
+"""
+LLM node factory — model invocation with optional tool binding.
+"""
 
 from langchain_core.runnables import RunnableConfig
 

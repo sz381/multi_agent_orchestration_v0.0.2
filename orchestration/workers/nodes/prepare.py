@@ -1,6 +1,6 @@
 """Prepare node factory — inject system prompt + task description.
 
-Context Isolation: each worker invocation gets clean [SystemMessage, HumanMessage],
+each worker invocation gets clean [SystemMessage, HumanMessage],
 not inheriting the main orchestrator's conversation history.
 """
 
