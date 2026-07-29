@@ -8,6 +8,7 @@ import structlog
 from langchain_core.messages import AIMessage
 
 from utils.logging import get_logger
+from utils.model import count_tokens
 
 logger = get_logger(__name__)
 
@@ -19,7 +20,17 @@ _FILE_PRODUCING_TOOLS: dict[str, str] = {
 
 
 def _extract_artifacts(messages: list) -> list[str]:
-    """Extract file paths produced by write_file/str_replace tool calls (deduplicated)."""
+    """Discover file paths produced by write tools during the session.
+
+    Scans every :class:`~langchain_core.messages.AIMessage` for tool
+    calls whose name matches a known file-producing tool (``write_file``,
+    ``str_replace``).  Extracts the target file path from each matched
+    call's arguments and returns a deduplicated, order-preserving list.
+
+    Returns:
+        List of unique absolute file paths written or modified by the agent,
+        in first-seen order.
+    """
     seen: set[str] = set()
     artifacts: list[str] = []
 
@@ -84,6 +95,12 @@ def make_summarize(name: str):
             start_at = float(state.get("sub_agent_start_at", 0))
             elapsed = time.time() - start_at if start_at else 0
 
+            # calculate the total tokens, prompts tokens, completion tokens
+            token_counts = count_tokens(messages)
+            total_prompt_tokens = token_counts["prompt_tokens"]
+            total_completion_tokens = token_counts["completion_tokens"]
+            total_tokens = token_counts["total_tokens"]
+
             logger.info(
                 "sub_agent_done",
                 sub_agent=name,
@@ -93,14 +110,16 @@ def make_summarize(name: str):
                 task_name=task_name,
                 elapsed=round(elapsed, 1),
                 artifacts_count=len(artifacts),
+                total_tokens=total_tokens,
+                prompt_tokens=total_prompt_tokens,
+                completion_tokens=total_completion_tokens,
                 status="success" if final_text else "empty_output",
             )
 
-            print(f"  [{name}] {task_id}  done  {elapsed:.1f}s")
+            print(f"  ✅ [{name}] {task_id} done  {sub_agent_id} | {sub_agent_name} | {task_name}  {elapsed:.1f}s")
+            print(f"     💰 total={total_tokens} tokens  completion={total_completion_tokens}  prompt={total_prompt_tokens}  [{sub_agent_id}] {sub_agent_name}")
 
-            # TODO: token calculation hasn't been implemented yet, 
-            # and this logic should be placed before the logging
-            token_used = state.get("total_tokens", 0)
+            token_used = total_tokens
 
             # return the final output
             return {

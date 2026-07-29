@@ -54,6 +54,7 @@ from orchestration.tools._kernel._web import (
     fetch_web as _fetch_web,
 )
 from orchestration.tools._kernel._bash import bash as _bash
+from utils.model import count_tokens
 
 
 @tool("view_file", description=FS_READONLY_DESCRIPTION["view_file"])
@@ -200,6 +201,17 @@ async def end_orchestration(
 
     if r["status"] == "error":
         return r["message"]
+
+    orch_tokens = count_tokens(runtime.state.get("messages", []))
+    sub_agent_outputs = runtime.state.get("sub_agent_outputs", {})
+    sub_total = sum(
+        output.get("token_used", 0) for output in sub_agent_outputs.values()
+    )
+    grand_total = orch_tokens["total_tokens"] + sub_total
+
+    print(f"\n  📊 Total tokens: {grand_total}  (orchestrator={orch_tokens['total_tokens']} + sub_agents={sub_total})")
+    for task_id, output in sub_agent_outputs.items():
+        print(f"     💰 [{output.get('sub_agent_id', task_id)}] {output.get('sub_agent_name', '?')}: {output.get('token_used', 0)} tokens")
 
     return Command(update={
         "response": response.strip(),

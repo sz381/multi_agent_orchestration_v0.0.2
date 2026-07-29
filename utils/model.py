@@ -9,6 +9,7 @@ from typing import Any
 
 import httpx
 import openai
+from langchain_core.messages import AIMessage
 from langchain_openai import ChatOpenAI
 
 from utils.settings import settings
@@ -104,3 +105,33 @@ async def ainvoke_with_retry(
             else:
                 raise
     raise last_exc
+
+
+def count_tokens(messages: list) -> dict[str, int]:
+    """Aggregate token usage across all AI-generated messages.
+
+    Reads ``usage_metadata`` that LangChain automatically attaches to each
+    :class:`~langchain_core.messages.AIMessage` during LLM invocation
+    both streaming and non-streaming. 
+
+    Returns:
+        dict with keys ``prompt_tokens``, ``completion_tokens``,
+        ``total_tokens`` — each an integer sum across all AI messages.
+    """
+    prompt_tokens = 0
+    completion_tokens = 0
+    total_tokens = 0
+
+    for msg in messages:
+        if not isinstance(msg, AIMessage):
+            continue
+        um = getattr(msg, "usage_metadata", None) or {}
+        prompt_tokens += um.get("input_tokens", 0)
+        completion_tokens += um.get("output_tokens", 0)
+        total_tokens += um.get("total_tokens", 0)
+
+    return {
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": total_tokens,
+    }

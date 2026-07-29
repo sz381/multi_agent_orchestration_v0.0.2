@@ -13,7 +13,10 @@ from utils.callbacks import create_orchestration_config
 
 
 TEST_QUERY="""
-写一个 Python 脚本，并发抓取 GitHub Trending、Hacker News 首页、Reddit r/programming 热帖，输出一个按热度排序的 Markdown 日报。研究每个平台的 API/抓取方式。reviewer 检查反爬、超时、错误处理。 写到 /Users/shenweizhang/Desktop/ai/test。
+做一个 Markdown 笔记应用。
+后端 FastAPI + SQLite + requirements.txt + venv 虚拟环境，前端 Next.js (App Router) + BlockNote (@blocknote/react) 富文本编辑器 + Shadcn UI。
+功能：创建/编辑/删除笔记，BlockNote 编辑和渲染，笔记列表侧边栏，笔记持久化保存。
+所有代码输出到 /Users/shenweizhang/Desktop/ai/test。
 """
 
 def _safe_initial_state(**overrides) -> dict:

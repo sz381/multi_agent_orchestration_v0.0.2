@@ -50,8 +50,15 @@ class OrchestrationCallBack(AsyncCallbackHandler):
             if metadata:
                 identity = {k: str(metadata.get(k, "")) for k in _IDENTITY_KEYS}
 
+                # if we cannot get the sub_agent_id, then it means it's orchestator
+                # register a fake identity for orchestrator for the token stat
                 if not identity.get("sub_agent_id"):
-                    return  # orchestrator LLM call — no sub-agent identity to track
+                    identity = {
+                        "sub_agent_name": "orchestrator",
+                        "sub_agent_id": "orchestrator",
+                        "task_id": "orchestrator",
+                        "task_name": "orchestrator",
+                    }
 
                 if any(identity.values()):
                     self._llm_ctx[str(run_id)] = identity
@@ -91,6 +98,7 @@ class OrchestrationCallBack(AsyncCallbackHandler):
             identity = self._llm_ctx.get(str(run_id))
             if not identity:
                 return
+
             has_tool_calls = False
             for gen_list in (response.generations if hasattr(response, "generations") else []):
                 for gen in gen_list:
@@ -102,20 +110,17 @@ class OrchestrationCallBack(AsyncCallbackHandler):
                         if tc_id:
                             has_tool_calls = True
                             self._tool_call_ctx[tc_id] = identity
+                            
             # LLM call without tools → cleanup now (no on_tool_end will follow).
             if not has_tool_calls:
                 self._llm_ctx.pop(str(run_id), None)
             # Log completion.
-            token_usage = {}
-            if response.llm_output and isinstance(response.llm_output, dict):
-                token_usage = response.llm_output.get("token_usage", {})
             logger.info(
                 "LLM End",
                 sub_agent_name=identity.get("sub_agent_name", ""),
                 sub_agent_id=identity.get("sub_agent_id", ""),
                 task_id=identity.get("task_id", ""),
                 has_tool_calls=has_tool_calls,
-                token_usage=token_usage,
                 run_id=run_id,
             )
         except Exception:
