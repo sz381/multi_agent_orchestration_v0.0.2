@@ -5,6 +5,7 @@ Thin wrappers that bind kernel implementations to ``@tool`` decorators.
 ├── view_file
 ├── glob_tool
 ├── grep_tool
+├── str_replace
 ├── write_file
 ├── bash
 ├── web_search
@@ -22,7 +23,10 @@ from orchestration.tools._kernel._fs_readonly import (
     glob_tool as _glob_tool,
     grep_tool as _grep_tool,
 )
-from orchestration.tools._kernel._fs_mutate import write_file as _write_file
+from orchestration.tools._kernel._fs_mutate import (
+    str_replace as _str_replace,
+    write_file as _write_file,
+)
 from orchestration.tools._kernel._web import (
     web_search as _web_search,
     fetch_web as _fetch_web,
@@ -88,6 +92,23 @@ def grep_tool(
     )
 
 
+@tool("str_replace", description=FS_MUTATE_DESCRIPTION["str_replace"])
+async def str_replace(
+    file_path: str,
+    old_str: str,
+    new_str: str,
+    replace_all: bool = False,
+    encoding: str = "utf-8",
+) -> str:
+    return await _str_replace(
+        file_path,
+        old_str,
+        new_str,
+        replace_all,
+        encoding,
+    )
+
+
 @tool("write_file", description=FS_MUTATE_DESCRIPTION["write_file"])
 async def write_file(
     file_path: str,
@@ -147,6 +168,7 @@ REVIEWER_TOOLS = [
     view_file,
     glob_tool,
     grep_tool,
+    str_replace,
     write_file,
     bash,
     web_search,

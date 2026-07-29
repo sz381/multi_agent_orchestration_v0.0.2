@@ -1,3 +1,7 @@
+"""
+临时测试文件，以后会被删除
+temporary test file, will be deleted later
+"""
 import asyncio
 import json
 
@@ -7,6 +11,10 @@ from orchestration.graph import build_graph
 from orchestration.tools._kernel._web import close_crawler
 from utils.callbacks import create_orchestration_config
 
+
+TEST_QUERY="""
+写一个 Python 脚本，并发抓取 GitHub Trending、Hacker News 首页、Reddit r/programming 热帖，输出一个按热度排序的 Markdown 日报。研究每个平台的 API/抓取方式。reviewer 检查反爬、超时、错误处理。 写到 /Users/shenweizhang/Desktop/ai/test。
+"""
 
 def _safe_initial_state(**overrides) -> dict:
     defaults = {
@@ -152,7 +160,7 @@ async def main():
     graph = build_graph()
 
     state = _safe_initial_state(
-        user_query="你去 /Users/shenweizhang/Desktop/ai/test （空文件夹）去测试一下 写入工具 (write_file, str_replace 的并发性)，最最最最最严格的测试，因为我换了个 weekvalue dictionary，不要自己测试，fanout subagent!!!",
+        user_query=TEST_QUERY,
         conversation_id="demo_001",
         orchestration_id="demo_001",
     )

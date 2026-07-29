@@ -12,7 +12,7 @@ from ddgs import DDGS
 from tavily import TavilyClient
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
-from crawl4ai import AsyncWebCrawler, CrawlerRunConfig, CacheMode
+from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
 from crawl4ai.content_filter_strategy import PruningContentFilter
 from crawl4ai.markdown_generation_strategy import DefaultMarkdownGenerator
 
@@ -43,6 +43,8 @@ async def _get_crawler() -> AsyncWebCrawler:
 
     Uses double-checked locking to avoid starting multiple crawlers.
     Registers an atexit hook for cleanup on process exit.
+    Configures the browser with a realistic macOS Chrome User-Agent,
+    stealth mode, and typical browser headers to reduce anti-bot detection.
     """
     
     global _crawler, _crawler_started
@@ -50,7 +52,25 @@ async def _get_crawler() -> AsyncWebCrawler:
     if _crawler is None:
         async with _crawler_lock:
             if _crawler is None:
-                crawler = AsyncWebCrawler()
+                browser_config = BrowserConfig(
+                    user_agent=(
+                        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) "
+                        "Chrome/135.0.0.0 Safari/537.36"
+                    ),
+                    headers={
+                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+                        "Accept-Language": "en-US,en;q=0.9",
+                        "Accept-Encoding": "gzip, deflate, br",
+                        "DNT": "1",
+                        "Connection": "keep-alive",
+                        "Upgrade-Insecure-Requests": "1",
+                    },
+                    viewport_width=1920,
+                    viewport_height=1080,
+                    enable_stealth=True,
+                )
+                crawler = AsyncWebCrawler(config=browser_config)
 
                 await crawler.start()
                 _crawler = crawler
@@ -366,6 +386,9 @@ async def fetch_web(
             markdown_generator=md_gen,
             cache_mode=CacheMode.ENABLED,
             page_timeout=PAGE_TIMEOUT_MS,
+            magic=True,
+            simulate_user=True,
+            override_navigator=True,
         )
         
         crawler = await _get_crawler()
