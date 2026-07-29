@@ -18,7 +18,7 @@ from crawl4ai.markdown_generation_strategy import DefaultMarkdownGenerator
 
 from utils.settings import settings
 from utils.logging import get_logger
-from utils.retry import ainvoke_with_retry
+from utils.model import ainvoke_with_retry
 from orchestration.tools.description.web import WEB_SUMMARIZE_TEMPLATE
 
 MAX_SEARCH_RESULTS          = 20
@@ -229,7 +229,7 @@ async def _summarize_with_llm(
         return content
 
 
-def web_search(
+async def web_search(
     query: str,
     max_results: int = 5,
     allowed_domains: list[str] | None = None,
@@ -246,7 +246,21 @@ def web_search(
     Returns:
         JSON with status, total_results, and a results list.
     """
-    
+    return await asyncio.to_thread(
+        _web_search_sync,
+        query,
+        max_results,
+        allowed_domains,
+        blocked_domains,
+    )
+
+
+def _web_search_sync(
+    query: str,
+    max_results: int = 5,
+    allowed_domains: list[str] | None = None,
+    blocked_domains: list[str] | None = None,
+) -> str:
     if allowed_domains is not None and blocked_domains is not None:
         return json.dumps({
             "status": "error", 

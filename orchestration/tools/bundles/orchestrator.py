@@ -160,13 +160,13 @@ def bash(
 
 
 @tool("web_search", description=WEB_DESCRIPTION["web_search"])
-def web_search(
+async def web_search(
     query: str,
     max_results: int = 5,
     allowed_domains: list[str] | None = None,
     blocked_domains: list[str] | None = None,
 ) -> str:
-    return _web_search(
+    return await _web_search(
         query,
         max_results,
         allowed_domains,

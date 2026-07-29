@@ -61,9 +61,11 @@ def setup_langsmith_tracing() -> None:
     """
     
     global _langsmith_initialized
+
     if _langsmith_initialized:
         return
 
+    # TODO: setup_langsmith_tracing 直接改 os.environ、缺少运行时配置语义校验。
     if settings.langsmith_api_key and settings.langsmith_tracing:
         os.environ["LANGSMITH_API_KEY"] = settings.langsmith_api_key
         os.environ["LANGSMITH_PROJECT"] = settings.langsmith_project

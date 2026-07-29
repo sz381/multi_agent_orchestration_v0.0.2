@@ -31,15 +31,27 @@ def _build_react_graph(
     tools: list | None,
     summarize_node,
 ):
-    """Pure graph builder — no business logic, no parameter knowledge."""
+    """
+    Pure graph builder — no business logic, no parameter knowledge.
+    """
+
     builder = StateGraph(state_cls)
 
     def _route(state) -> Literal["tools", "summarize"]:
+        """
+        Route the state to either the tools node or the summarize node.
+        """
+        if not state["messages"]:
+            return "summarize"
+
         last_msg = state["messages"][-1]
+
         if isinstance(last_msg, AIMessage) and last_msg.tool_calls:
             return "tools"
+
         return "summarize"
 
+    # add nodes
     builder.add_node("prepare", prepare_node)
     builder.add_node("llm", llm_node)
     builder.add_node("summarize", summarize_node)
@@ -48,6 +60,7 @@ def _build_react_graph(
     if has_tools:
         builder.add_node("tools", ToolNode(tools))
 
+    # add edges
     builder.add_edge(START, "prepare")
     builder.add_edge("prepare", "llm")
 
@@ -91,6 +104,7 @@ def build_react_agent(
             system_prompt=RESEARCHER_SYSTEM_PROMPT,
         )
     """
+    
     prepare_node = make_prepare(name, system_prompt)
     llm_node = make_llm(tools)
     summarize_node = make_summarize(name)
