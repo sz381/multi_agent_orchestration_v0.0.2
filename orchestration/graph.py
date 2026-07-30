@@ -80,6 +80,11 @@ def route_after_tools(state: OrchestrationState):
                     "task_id": t["task_id"],
                     "task_name": t["task_name"],
                     "task_description": t["task_description"],
+                    **(
+                        {"project_dir": t["project_dir"]}
+                        if t.get("project_dir", "").strip()
+                        else {}
+                    ),
                 },
             )
             for t in tasks

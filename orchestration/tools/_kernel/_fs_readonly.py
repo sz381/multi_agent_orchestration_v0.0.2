@@ -267,7 +267,7 @@ def glob_tool(
         }, ensure_ascii=False)
 
     full_pattern = os.path.join(search_dir, pattern)
-    MAX_RESULTS = 500
+    MAX_RESULTS = 200
     MAX_SCAN = 5000
     file_matches: list[str] = []
     total = 0

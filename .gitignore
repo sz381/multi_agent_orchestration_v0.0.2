@@ -30,7 +30,7 @@ env/
 *~
 .DS_Store
 Thumbs.db
-*.log
+# *.log
 .pytest_cache/
 tests/tools/_tmp/
 .coverage
@@ -42,5 +42,4 @@ frontend/.next/
 frontend/build/
 *.tsbuildinfo
 *.local
-
 .langgraph_api/

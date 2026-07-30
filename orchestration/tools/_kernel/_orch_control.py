@@ -12,6 +12,7 @@ REQUIRED_TASK_FIELDS = {
     "task_id", "task_name", "task_description",
     "task_completion_status", "subagent_id", "subagent_name",
 }
+ALLOWED_OPTIONAL_FIELDS = {"project_dir"}
 
 _lock_end = asyncio.Lock()
 _lock_fanout = asyncio.Lock()
@@ -145,7 +146,7 @@ async def fanout_subagents(
                         "message": f"task[{i}] must be a dict, got {type(t).__name__}."
                     }, ensure_ascii=False)
 
-                extra = set(t.keys()) - REQUIRED_TASK_FIELDS
+                extra = set(t.keys()) - REQUIRED_TASK_FIELDS - ALLOWED_OPTIONAL_FIELDS
                 
                 if extra:
                     return json.dumps({
@@ -235,6 +236,7 @@ async def fanout_subagents(
                     "task_completion_status": False,
                     "subagent_id": sid,
                     "subagent_name": t["subagent_name"].strip(),
+                    **({"project_dir": t["project_dir"].strip()} if t.get("project_dir", "").strip() else {}),
                 })
 
             return json.dumps({

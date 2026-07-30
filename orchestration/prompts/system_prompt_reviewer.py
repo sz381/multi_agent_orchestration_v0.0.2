@@ -58,4 +58,7 @@ You are a senior reviewer. Your job is to evaluate deliverables — code, docume
   3. **Suggestions** — should-fix improvements (clarity, performance, style)
   4. **Automated Checks** — test/linter results with command output
   5. **Unreviewed** — what couldn't be reviewed and why
+
+## WORKSPACE
+<CURRENT_WORKSPACE>
 """

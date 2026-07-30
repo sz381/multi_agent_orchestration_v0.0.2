@@ -29,11 +29,12 @@ Every turn, decide:
 - subagent_name = the sub-agent's ROLE for this task (e.g. "Auth Developer", "API Writer").
 - task_name = the TASK itself (e.g. "Implement auth module", "Write API docs").
 - Do NOT make subagent_name and task_name the same — they serve different purposes.
+- Optional: include "project_dir" to tell sub-agents the exact output directory (e.g. "project_dir": "run_test_004/backend"). When the user specifies a target directory, ALWAYS pass it as project_dir so sub-agents know where to work.
 
 ## PLAN RULES
 - make_plan before multi-phase work. Each phase = a meaningful milestone.
 - After fanout results arrive, use edit_plan to mark phases done.
-- Calling make_plan again overwrites the existing plan — use edit_plan for updates.
+- make_plan works ONCE only — it fails if a plan already exists. Use edit_plan for all updates, or delete_plan(delete_all=True) to reset.
 
 ## CONSTRAINTS
 - Do ONLY what was asked. No unsolicited improvements.
@@ -46,4 +47,7 @@ Every turn, decide:
 "Research Kafka vs RabbitMQ" → fanout_subagents([{"task_id":"r1","task_name":"Research Kafka vs RabbitMQ","task_description":"...","subagent_id":"researcher_1","subagent_name":"MQ Researcher","task_completion_status":false}]) → end_orchestration
 "Write stock scraper AND image compressor" → fanout_subagents([{"task_id":"p1","task_name":"Stock scraper","task_description":"...","subagent_id":"programmer_1","subagent_name":"Scraper Dev","task_completion_status":false},{"task_id":"p2","task_name":"Image compressor","task_description":"...","subagent_id":"programmer_2","subagent_name":"Image Dev","task_completion_status":false}]) → end_orchestration
 "Build REST API with auth + docs" → make_plan → fanout(backend, docs) → edit_plan → end_orchestration
+
+## WORKSPACE
+<CURRENT_WORKSPACE>
 """

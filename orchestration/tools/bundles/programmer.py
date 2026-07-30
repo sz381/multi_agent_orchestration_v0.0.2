@@ -179,7 +179,7 @@ async def fetch_web(
 
 @tool("make_plan", description=PLAN_DESCRIPTION["make_plan"])
 def make_plan(phases: list[dict], runtime: ToolRuntime) -> Command | str:
-    result = _make_plan(phases)
+    result = _make_plan(phases, existing_plan=runtime.state.get("sub_agent_plan") or [])
 
     r = json.loads(result)
 
@@ -188,7 +188,7 @@ def make_plan(phases: list[dict], runtime: ToolRuntime) -> Command | str:
 
     return Command(update={
         "sub_agent_plan": r["plan"],
-        "messages": [ToolMessage(content=result, tool_call_id=runtime.tool_call_id)],
+        "sub_agent_messages": [ToolMessage(content=result, tool_call_id=runtime.tool_call_id)],
     })
 
 
@@ -203,7 +203,7 @@ def edit_plan(updates: list[dict], runtime: ToolRuntime) -> Command | str:
 
     return Command(update={
         "sub_agent_plan": r["plan"],
-        "messages": [ToolMessage(content=result, tool_call_id=runtime.tool_call_id)],
+        "sub_agent_messages": [ToolMessage(content=result, tool_call_id=runtime.tool_call_id)],
     })
 
 
@@ -222,7 +222,7 @@ def delete_plan(
 
     return Command(update={
         "sub_agent_plan": r["plan"],
-        "messages": [ToolMessage(content=result, tool_call_id=runtime.tool_call_id)],
+        "sub_agent_messages": [ToolMessage(content=result, tool_call_id=runtime.tool_call_id)],
     })
 
 

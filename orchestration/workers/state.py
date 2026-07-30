@@ -21,9 +21,11 @@ class SubAgentState(TypedDict):
     output_artifacts: Annotated[list, operator.add]
     sub_agent_outputs: Annotated[dict, lambda left, right: {**left, **right}]
     total_tokens: int
+    sub_agent_iteration: int
     sub_agent_start_at: str
     sub_agent_time_elapsed: float
     sub_agent_error_message: str
+    summary: str
 
 
 class ProgrammerSubAgentState(SubAgentState):

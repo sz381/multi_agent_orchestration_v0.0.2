@@ -82,3 +82,4 @@ class OrchestrationState(TypedDict):
     start_at: str
     time_elapsed: float
     error_message: str
+    summary: str

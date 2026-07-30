@@ -10,6 +10,7 @@ import structlog
 from langchain_core.messages import SystemMessage, HumanMessage
 
 from utils.logging import get_logger
+from utils.settings import settings
 
 logger = get_logger(__name__)
 
@@ -72,30 +73,16 @@ def make_prepare(name: str, system_prompt: str):
             task_name=task_name,
         )
 
-        # Prepare system content; inject sub-agent plan if available.
-        system_content = system_prompt
-        sub_agent_plan = state.get("sub_agent_plan") or []
+        # Prepare system content; inject workspace and project dir if available.
+        workspace_info = f"Your workspace root is: {settings.workspace_dir or '.'}"
+        project_dir = state.get("project_dir", "").strip()
+        if project_dir:
+            workspace_info += f"\nYour project directory is: {project_dir}\nAll file operations should be scoped to this directory."
 
-        if sub_agent_plan:
-            plan_lines = ["\n## CURRENT PLAN"]
-
-            for i, p in enumerate(sub_agent_plan):
-                try:
-                    phase_status = p["phase_status"]
-                    phase_id = p["phase_id"]
-                    phase_name = p["phase_name"]
-                except KeyError as e:
-                    logger.error(
-                        "sub_agent_plan_item_missing_key",
-                        plan_index=i,
-                        missing_key=str(e),
-                        available_keys=list(p.keys()),
-                    )
-                    raise
-                icon = {"pending": "○", "in_progress": "◐", "done": "●"}.get(phase_status, "?")
-                plan_lines.append(f"  {icon} [{phase_id}] {phase_name}")
-
-            system_content += "\n".join(plan_lines)
+        system_content = system_prompt.replace(
+            "<CURRENT_WORKSPACE>",
+            workspace_info,
+        )
 
         # return prepared messages
         return {
@@ -104,6 +91,8 @@ def make_prepare(name: str, system_prompt: str):
                 HumanMessage(content=task_description),
             ],
             "sub_agent_start_at": str(t_start),
+            "sub_agent_iteration": 0,
+            "summary": "",
         }
 
     return prepare_node

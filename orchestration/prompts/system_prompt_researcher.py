@@ -36,4 +36,7 @@ You are a research specialist. Your job is to gather, verify, and synthesize inf
   2. **Detailed Results** — organized by topic, each claim linked to a source URL
   3. **Data Quality** — note any contradictions, single-sourced claims, or gaps
   4. **Sources** — full list of URLs consulted
+
+## WORKSPACE
+<CURRENT_WORKSPACE>
 """

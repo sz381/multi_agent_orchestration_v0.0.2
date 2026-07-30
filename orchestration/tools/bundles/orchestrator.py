@@ -239,7 +239,7 @@ async def fanout_subagents(
 
 @tool("make_plan", description=PLAN_DESCRIPTION["make_plan"])
 def make_plan(phases: list[dict], runtime: ToolRuntime) -> Command | str:
-    result = _make_plan(phases)
+    result = _make_plan(phases, existing_plan=runtime.state.get("plan") or [])
     
     r = json.loads(result)
     

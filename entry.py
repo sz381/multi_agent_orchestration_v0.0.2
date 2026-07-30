@@ -13,10 +13,17 @@ from utils.callbacks import create_orchestration_config
 
 
 TEST_QUERY="""
-做一个 Markdown 笔记应用。
-后端 FastAPI + SQLite + requirements.txt + venv 虚拟环境，前端 Next.js (App Router) + BlockNote (@blocknote/react) 富文本编辑器 + Shadcn UI。
-功能：创建/编辑/删除笔记，BlockNote 编辑和渲染，笔记列表侧边栏，笔记持久化保存。
-所有代码输出到 /Users/shenweizhang/Desktop/ai/run_test_000。
+做一个个人财务管理应用。
+后端 FastAPI + SQLite + requirements.txt + venv 虚拟环境，前端 Next.js (App Router) + Shadcn UI + Recharts 图表库。
+功能：
+1. 分类管理（CRUD，预置 收入/支出 两大类，支出下预置 餐饮/交通/购物/娱乐/居住/医疗/教育/其他）
+2. 交易记录（CRUD，每笔记录关联分类、金额、日期、备注，支持按月份筛选和分页）
+3. 月度概览仪表盘（当月总收入/总支出/结余卡片，支出分类饼图，近6个月收支趋势折线图）
+4. 预算管理（为每个支出分类设置月度预算，超出预算时醒目提醒）
+你可以先自己思考一下然后写一个 program_architecture.md 出来，里面详细的阐述了前后端怎么设计怎么联调
+尽量fanout subagents 一个前端，一个后端，并且告诉前端agent和后端agent 参考你刚刚写的 architecture 文件去做。
+前后端 agent 写完之后，你去请检查代码并确保其正确性。
+所有代码输出到 /Users/shenweizhang/Desktop/ai/run_test_007
 """
 
 def _safe_initial_state(**overrides) -> dict:

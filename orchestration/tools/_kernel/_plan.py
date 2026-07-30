@@ -11,7 +11,8 @@ ALLOWED_UPDATE_FIELDS = {"phase_name", "phase_status", "phase_description"}
 
 
 def make_plan(
-    phases: list[dict]
+    phases: list[dict],
+    existing_plan: list[dict] | None = None,
 ) -> str:
     """Create a new execution plan from a list of phases.
 
@@ -25,6 +26,12 @@ def make_plan(
         JSON with status and the validated plan.
     """
     
+    if existing_plan:
+        return json.dumps({
+            "status": "error",
+            "message": f"Plan already exists ({len(existing_plan)} phases). Use edit_plan to update, or delete_plan(delete_all=True) to clear and recreate.",
+        }, ensure_ascii=False)
+
     if not isinstance(phases, list) or not phases:
         return json.dumps({
             "status": "error",

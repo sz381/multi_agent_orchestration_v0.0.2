@@ -7,11 +7,13 @@ TOOL_DESCRIPTION = {
         "Create an execution plan with phases. Use before fanout_subagents for "
         "complex multi-phase work (e.g. research → implement → review). "
         "After fanout results arrive, use edit_plan to update phase status.\n"
+        "Only call ONCE — it will fail if a plan already exists. "
+        "Use edit_plan to modify or delete_plan(delete_all=True) to reset.\n"
         "Params:\n"
         "- phases: list of dicts, each with exactly:\n"
         "    phase_id (unique string), phase_name (string),\n"
         "    phase_status ('pending'|'in_progress'|'done'), phase_description (string)\n"
-        "Limits: max 12 phases. Calling again overwrites the plan. No extra fields allowed."
+        "Limits: max 12 phases. No extra fields allowed."
     ),
     "edit_plan": (
         "Modify one or more plan phases in a single call (e.g. mark phases as in_progress/done).\n"
