@@ -99,7 +99,7 @@ def make_prepare(name: str, system_prompt: str):
 
         # return prepared messages
         return {
-            "messages": [
+            "sub_agent_messages": [
                 SystemMessage(content=system_content),
                 HumanMessage(content=task_description),
             ],

@@ -32,7 +32,7 @@ def _get_file_lock(file_path: str) -> asyncio.Lock:
 
 
 MAX_WRITE_SIZE = 1 * 1024 * 1024
-MAX_DIFF_SIZE = 4096
+MAX_DIFF_SIZE = 500
 
 
 async def str_replace(

@@ -17,7 +17,7 @@ class SubAgentState(TypedDict):
     task_id: str
     task_name: str
     task_description: str
-    messages: Annotated[list, add_messages]
+    sub_agent_messages: Annotated[list, add_messages]
     output_artifacts: Annotated[list, operator.add]
     sub_agent_outputs: Annotated[dict, lambda left, right: {**left, **right}]
     total_tokens: int

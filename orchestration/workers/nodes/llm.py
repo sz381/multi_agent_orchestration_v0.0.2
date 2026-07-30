@@ -28,7 +28,7 @@ def make_llm(tools: list | None = None):
             sub_agent_id = state["sub_agent_id"]
             task_id = state["task_id"]
             task_name = state["task_name"]
-            messages = state["messages"]
+            messages = state["sub_agent_messages"]
         except KeyError as e:
             logger.error(
                 "sub_agent_identity_missing",
@@ -59,6 +59,6 @@ def make_llm(tools: list | None = None):
             model = model.bind_tools(tools)
 
         response = await ainvoke_with_retry(model, messages, config=config)
-        return {"messages": [response]}
+        return {"sub_agent_messages": [response]}
 
     return llm_node

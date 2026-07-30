@@ -16,7 +16,7 @@ TEST_QUERY="""
 做一个 Markdown 笔记应用。
 后端 FastAPI + SQLite + requirements.txt + venv 虚拟环境，前端 Next.js (App Router) + BlockNote (@blocknote/react) 富文本编辑器 + Shadcn UI。
 功能：创建/编辑/删除笔记，BlockNote 编辑和渲染，笔记列表侧边栏，笔记持久化保存。
-所有代码输出到 /Users/shenweizhang/Desktop/ai/test。
+所有代码输出到 /Users/shenweizhang/Desktop/ai/run_test_000。
 """
 
 def _safe_initial_state(**overrides) -> dict:

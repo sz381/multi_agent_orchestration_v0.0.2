@@ -41,10 +41,10 @@ def _build_react_graph(
         """
         Route the state to either the tools node or the summarize node.
         """
-        if not state["messages"]:
+        if not state["sub_agent_messages"]:
             return "summarize"
 
-        last_msg = state["messages"][-1]
+        last_msg = state["sub_agent_messages"][-1]
 
         if isinstance(last_msg, AIMessage) and last_msg.tool_calls:
             return "tools"
@@ -58,7 +58,7 @@ def _build_react_graph(
 
     has_tools = tools and len(tools) > 0
     if has_tools:
-        builder.add_node("tools", ToolNode(tools))
+        builder.add_node("tools", ToolNode(tools, messages_key="sub_agent_messages"))
 
     # add edges
     builder.add_edge(START, "prepare")

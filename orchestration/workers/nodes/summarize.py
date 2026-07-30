@@ -68,7 +68,7 @@ def make_summarize(name: str):
         # Get required fields with defensive error context.
         try:
             task_id = state["task_id"]
-            messages = state["messages"]
+            messages = state["sub_agent_messages"]
             sub_agent_id = state["sub_agent_id"]
             sub_agent_name = state["sub_agent_name"]
             task_name = state["task_name"]
@@ -83,9 +83,11 @@ def make_summarize(name: str):
         try:
             # find the last message of subagent as response
             final_text = ""
+            last_aimessage = None
             for msg in reversed(messages):
                 if isinstance(msg, AIMessage) and msg.content:
                     final_text = msg.content
+                    last_aimessage = msg
                     break
 
             # extract output artifacts from subagent's response
@@ -123,6 +125,7 @@ def make_summarize(name: str):
 
             # return the final output
             return {
+                "messages": [last_aimessage] if last_aimessage else [],
                 "output_artifacts": artifacts,
                 "sub_agent_outputs": {
                     task_id: {
