@@ -13,7 +13,7 @@ from utils.logging import get_logger
 
 logger = get_logger(__name__)
 
-MAX_MESSAGES_BEFORE_SUMMARY = 15
+MAX_MESSAGES_BEFORE_SUMMARY = 30
 KEEP_RECENT = 8
 
 SUMMARY_SYSTEM_PROMPT = """You are a conversation summarizer for an AI agent system. Create a concise, structured summary of the conversation history.
@@ -58,6 +58,7 @@ async def maybe_summarize(
     *,
     max_messages: int = MAX_MESSAGES_BEFORE_SUMMARY,
     keep_recent: int = KEEP_RECENT,
+    config: dict | None = None,
 ) -> tuple[str, list]:
     """Conditionally compress old messages when history exceeds threshold.
 
@@ -146,6 +147,7 @@ async def maybe_summarize(
         response = await ainvoke_with_retry(
             summary_model,
             [SystemMessage(content=SUMMARY_SYSTEM_PROMPT), HumanMessage(content=prompt)],
+            config=config,
         )
         new_summary = str(response.content)
         logger.info(

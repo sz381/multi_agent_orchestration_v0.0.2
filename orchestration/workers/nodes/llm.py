@@ -13,7 +13,7 @@ from utils.summarize import maybe_summarize
 
 logger = get_logger(__name__)
 
-MAX_ITERATIONS = 50  # hard cap: after this many ReAct loops, force final answer
+MAX_ITERATIONS = 30  # hard cap: after this many ReAct loops, force final answer
 
 
 def make_llm(tools: list | None = None):
@@ -42,11 +42,8 @@ def make_llm(tools: list | None = None):
             )
             raise
 
-        # Summarize old messages when history grows too long.
-        summary = state.get("summary", "")
-        new_summary, all_messages = await maybe_summarize(all_messages, summary)
-
-        # Inject sub-agent identity into metadata so callbacks can resolve it.
+        # Build sub-agent identity metadata early so that any LLM call
+        # within this node (including summarization) carries correct identity.
         identity = {
             "sub_agent_name": sub_agent_name,
             "sub_agent_id": sub_agent_id,
@@ -54,7 +51,13 @@ def make_llm(tools: list | None = None):
             "task_name": task_name,
         }
         merged_metadata = {**(config.get("metadata") or {}), **identity}
-        config = {**config, "metadata": merged_metadata}
+        config_with_id = {**config, "metadata": merged_metadata}
+
+        # Summarize old messages when history grows too long.
+        summary = state.get("sub_agent_context_summary", "")
+        new_summary, all_messages = await maybe_summarize(
+            all_messages, summary, config=config_with_id,
+        )
 
         # Check iteration limit — if exceeded, force final answer without tools.
         iteration = state.get("sub_agent_iteration", 0) + 1
@@ -125,7 +128,7 @@ def make_llm(tools: list | None = None):
                 sys_content += "\n".join(plan_lines)
             messages[0] = SystemMessage(content=sys_content)
 
-        response = await ainvoke_with_retry(model, messages, config=config)
-        return {"sub_agent_messages": [response], "sub_agent_iteration": iteration, "summary": new_summary}
+        response = await ainvoke_with_retry(model, messages, config=config_with_id)
+        return {"sub_agent_messages": [response], "sub_agent_iteration": iteration, "sub_agent_context_summary": new_summary}
 
     return llm_node

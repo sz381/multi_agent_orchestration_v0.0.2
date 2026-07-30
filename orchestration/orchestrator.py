@@ -55,8 +55,8 @@ async def orchestrator_node(state: OrchestrationState, config: RunnableConfig) -
         history = state["messages"]
 
         # Summarize old messages when history grows too long.
-        summary = state.get("summary", "")
-        new_summary, history = await maybe_summarize(history, summary)
+        summary = state.get("context_summary", "")
+        new_summary, history = await maybe_summarize(history, summary, config=config)
 
         # Inject conversation summary into system prompt.
         if new_summary:
@@ -83,14 +83,14 @@ async def orchestrator_node(state: OrchestrationState, config: RunnableConfig) -
 
         response = await ainvoke_with_retry(_model_with_tools, messages, config=config)
 
-        return {"messages": [response], "summary": new_summary}
+        return {"messages": [response], "context_summary": new_summary}
 
     except Exception as e:
         logger.error(f"Orchestrator invocation failed: {e}", exc_info=True)
         return {
             "messages": [AIMessage(content="An internal error occurred. Please try again.")],
             "error_message": str(e),
-            "summary": state.get("summary", ""),
+            "context_summary": state.get("context_summary", ""),
         }
 
 

@@ -233,6 +233,7 @@ async def fanout_subagents(
 
     return Command(update={
         "sub_agent_round_tasks": r["tasks"],
+        "active_sub_agent_count": len(r["tasks"]),
         "messages": [ToolMessage(content=result, tool_call_id=runtime.tool_call_id)],
     })
 

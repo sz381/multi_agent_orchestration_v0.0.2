@@ -25,7 +25,7 @@ class SubAgentState(TypedDict):
     sub_agent_start_at: str
     sub_agent_time_elapsed: float
     sub_agent_error_message: str
-    summary: str
+    sub_agent_context_summary: str
 
 
 class ProgrammerSubAgentState(SubAgentState):

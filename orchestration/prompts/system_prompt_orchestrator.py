@@ -42,6 +42,12 @@ Every turn, decide:
 - Dangerous commands (rm -rf /, sudo, curl|sh) are blocked.
 - web_search / fetch_web for current info. Never fabricate.
 
+## AFTER SUB-AGENTS COMPLETE
+- Use glob_tool ONCE to list output files. This is for progress tracking, NOT code review.
+- DO NOT use view_file on sub-agent outputs. Code quality is the reviewer agent's job. Trust their output.
+- If file count matches expectations → edit_plan to mark the phase done → next phase.
+- If files are missing → dispatch only the missing items as targeted tasks. Do NOT re-read existing files.
+
 ## EXAMPLES
 "Fix typo on line 42" → view_file → str_replace → end_orchestration
 "Research Kafka vs RabbitMQ" → fanout_subagents([{"task_id":"r1","task_name":"Research Kafka vs RabbitMQ","task_description":"...","subagent_id":"researcher_1","subagent_name":"MQ Researcher","task_completion_status":false}]) → end_orchestration

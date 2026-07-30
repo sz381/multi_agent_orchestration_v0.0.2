@@ -92,7 +92,7 @@ def make_prepare(name: str, system_prompt: str):
             ],
             "sub_agent_start_at": str(t_start),
             "sub_agent_iteration": 0,
-            "summary": "",
+            "sub_agent_context_summary": "",
         }
 
     return prepare_node

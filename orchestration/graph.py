@@ -2,7 +2,7 @@
 
 Builds the main orchestration loop:
     START → orchestrator → tools → fanout (Send) or back
-    sub-agents → collect → orchestrator
+    sub-agents → collect → route_after_collect → orchestrator (only when all done)
     interrupt → orchestrator
 
 Uses LangGraph Send API for dynamic parallel sub-agent dispatch.
@@ -98,8 +98,27 @@ def _collect_sub_agent_results(state: OrchestrationState) -> dict:
 
     Without this, the route function would re-dispatch the same tasks
     on every subsequent orchestrator turn (infinite loop).
+
+    Also decrements the active sub-agent counter so the routing logic
+    knows when all dispatched sub-agents have finished.
     """
-    return {"sub_agent_round_tasks": []}
+    current = state.get("active_sub_agent_count", 0)
+    return {
+        "sub_agent_round_tasks": [],
+        "active_sub_agent_count": max(0, current - 1),
+    }
+
+
+def route_after_collect(state: OrchestrationState) -> str:
+    """Only wake the orchestrator when all dispatched sub-agents have finished.
+
+    During fanout, every sub-agent completion triggers collect → this route.
+    By checking the active count we avoid waking the orchestrator (and its
+    expensive summarize/LLM calls) while sibling sub-agents are still running.
+    """
+    if state.get("active_sub_agent_count", 0) > 0:
+        return END
+    return "orchestrator"
 
 
 def build_graph():
@@ -125,7 +144,14 @@ def build_graph():
 
     for name in SUBAGENT_MAP:
         builder.add_edge(name, "collect_sub_agent_results")
-    builder.add_edge("collect_sub_agent_results", "orchestrator")
+    builder.add_conditional_edges(
+        "collect_sub_agent_results",
+        route_after_collect,
+        {
+            "orchestrator": "orchestrator",
+            END: END,
+        },
+    )
 
     builder.add_conditional_edges(
         "orchestrator",

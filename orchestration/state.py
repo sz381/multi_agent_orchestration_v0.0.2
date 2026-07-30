@@ -82,4 +82,5 @@ class OrchestrationState(TypedDict):
     start_at: str
     time_elapsed: float
     error_message: str
-    summary: str
+    context_summary: str
+    active_sub_agent_count: int
