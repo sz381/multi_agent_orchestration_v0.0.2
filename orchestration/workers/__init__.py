@@ -1,4 +1,6 @@
-"""Workers package — sub-agent graph factory + registry."""
+"""
+Workers package — sub-agent graph factory + registry.
+"""
 
 from orchestration.workers.graph import build_react_agent
 from orchestration.workers.worker_registry import (

@@ -32,6 +32,12 @@ def make_plan(
             "message": f"Plan already exists ({len(existing_plan)} phases). Use edit_plan to update, or delete_plan(delete_all=True) to clear and recreate.",
         }, ensure_ascii=False)
 
+    if isinstance(phases, str):
+        try:
+            phases = json.loads(phases)
+        except (json.JSONDecodeError, TypeError):
+            pass
+
     if not isinstance(phases, list) or not phases:
         return json.dumps({
             "status": "error",
@@ -50,6 +56,11 @@ def make_plan(
     clean_phases: list[dict] = []
 
     for i, p in enumerate(phases):
+        if isinstance(p, str):
+            try:
+                p = json.loads(p)
+            except (json.JSONDecodeError, TypeError):
+                pass
         if not isinstance(p, dict):
             return json.dumps({
                 "status": "error",
@@ -142,6 +153,12 @@ def edit_plan(
         JSON with status and the updated plan.
     """
     
+    if isinstance(updates, str):
+        try:
+            updates = json.loads(updates)
+        except (json.JSONDecodeError, TypeError):
+            pass
+
     if not isinstance(updates, list) or not updates:
         return json.dumps({
             "status": "error",

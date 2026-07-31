@@ -117,6 +117,12 @@ async def fanout_subagents(
                     "message": "fanout_subagents already called in this turn. Ignoring duplicate call."
                 }, ensure_ascii=False)
 
+            if isinstance(tasks, str):
+                try:
+                    tasks = json.loads(tasks)
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
             if not isinstance(tasks, list):
                 return json.dumps({
                     "status": "error",

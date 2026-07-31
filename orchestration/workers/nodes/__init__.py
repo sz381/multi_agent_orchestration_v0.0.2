@@ -1,4 +1,6 @@
-"""Worker nodes — prepare, llm, summarize node factories."""
+"""
+Worker nodes — prepare, llm, summarize node factories.
+"""
 
 from orchestration.workers.nodes.prepare import make_prepare
 from orchestration.workers.nodes.llm import make_llm

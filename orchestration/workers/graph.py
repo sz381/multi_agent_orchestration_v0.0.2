@@ -5,10 +5,6 @@ Merges graph builder + agent assembler into one module.
 
 Provides:
     build_react_agent(*, name, tools, system_prompt, state_cls) → CompiledStateGraph
-
-Graph structure:
-    has_tools:  START → prepare → llm ↔ tools → summarize → END
-    no_tools:   START → prepare → llm → summarize → END
 """
 
 from typing import Literal
@@ -32,9 +28,8 @@ def _build_react_graph(
     summarize_node,
 ):
     """
-    Pure graph builder — no business logic, no parameter knowledge.
+    Pure graph builder
     """
-
     builder = StateGraph(state_cls)
 
     def _route(state) -> Literal["tools", "summarize"]:
@@ -65,7 +60,14 @@ def _build_react_graph(
     builder.add_edge("prepare", "llm")
 
     if has_tools:
-        builder.add_conditional_edges("llm", _route, {"tools": "tools", "summarize": "summarize"})
+        builder.add_conditional_edges(
+            "llm", 
+            _route, 
+            {
+                "tools": "tools", 
+                "summarize": "summarize"
+            }
+        )
         builder.add_edge("tools", "llm")
     else:
         builder.add_edge("llm", "summarize")
@@ -104,7 +106,6 @@ def build_react_agent(
             system_prompt=RESEARCHER_SYSTEM_PROMPT,
         )
     """
-    
     prepare_node = make_prepare(name, system_prompt)
     llm_node = make_llm(tools)
     summarize_node = make_summarize(name)

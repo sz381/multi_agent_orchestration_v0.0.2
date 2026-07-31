@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     deepseek_base_url: str = "https://api.deepseek.com"
     deepseek_model_name: str = "deepseek-v4-flash"
 
+    xiaomi_mimo_api_key: str | None = None
+    xiaomi_mimo_base_url: str = "https://api.xiaomimimo.com/v1"
+    xiaomi_mimo_model_name: str = "mimo-v2.5"
+
     tavily_api_key: str | None = None
 
     workspace_dir: str | None = None

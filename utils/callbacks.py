@@ -247,14 +247,14 @@ class OrchestrationCallBack(AsyncCallbackHandler):
         2. structlog contextvars          — fallback (set by prepare_node)
         3. _llm_ctx[parent_run_id]        — last resort
         """
-        # 1. tool_call_id lookup
+        # tool_call_id lookup
         tc_id = kwargs.get("tool_call_id", "")
         if tc_id:
             ctx = self._tool_call_ctx.pop(tc_id, None)
             if ctx:
                 return ctx
 
-        # 2. structlog contextvars fallback
+        # structlog contextvars fallback
         try:
             cv = structlog.contextvars.get_contextvars()
             identity = {k: cv.get(k, "") for k in _IDENTITY_KEYS}
@@ -263,13 +263,13 @@ class OrchestrationCallBack(AsyncCallbackHandler):
         except Exception:
             pass
 
-        # 3. parent_run_id → _llm_ctx fallback (sub-agent may still be in llm_ctx)
+        # parent_run_id → _llm_ctx fallback (sub-agent may still be in llm_ctx)
         if parent_run_id:
             ctx = self._llm_ctx.get(str(parent_run_id))
             if ctx:
                 return ctx
 
-        # 4. orchestrator tools have no identity — expected, not an error.
+        # orchestrator tools have no identity — expected, not an error.
         logger.warning(
             "callback_identity_unresolved",
             run_id=str(run_id),
@@ -297,7 +297,6 @@ def create_orchestration_config(
     Returns:
         RunnableConfig ready for graph.ainvoke / graph.astream.
     """
-
     config: RunnableConfig = dict(base_config) if base_config else {}
 
     callbacks = list(config.get("callbacks", []))

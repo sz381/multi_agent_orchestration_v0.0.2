@@ -4,27 +4,49 @@ temporary test file, will be deleted later
 """
 import asyncio
 import json
+import logging
 
 from langchain_core.messages import AIMessageChunk, HumanMessage, ToolMessage
 
 from orchestration.graph import build_graph
 from orchestration.tools._kernel._web import close_crawler
 from utils.callbacks import create_orchestration_config
+from utils.logging import setup_logging
+
+setup_logging(dev_mode=True, log_level=logging.DEBUG)
 
 
+# TEST_QUERY="""
+# 做一个个人财务管理应用。
+# 后端 FastAPI + SQLite + requirements.txt + venv 虚拟环境。
+# 前端纯 HTML/CSS/JS（单页应用，无需框架）+ Chart.js（CDN引入，不需要npm install）。
+# 功能：
+# 1. 分类管理（CRUD，预置 收入/支出 两大类，支出下预置 餐饮/交通/购物/娱乐/居住/医疗/教育/其他）
+# 2. 交易记录（CRUD，每笔记录关联分类、金额、日期、备注，支持按月份筛选和分页）
+# 3. 月度概览仪表盘（当月总收入/总支出/结余卡片，支出分类饼图，近6个月收支趋势折线图）
+# 4. 预算管理（为每个支出分类设置月度预算，超出预算时醒目提醒）
+# 你可以先自己思考一下然后写一个 program_architecture.md 出来，里面详细的阐述了前后端怎么设计怎么联调。
+# 尽量fanout subagents 一个前端，一个后端，并且告诉前端agent和后端agent 参考你刚刚写的 architecture 文件去做。
+# 前后端 agent 写完之后，你去请检查代码并确保其正确性。
+# 所有代码输出到 /Users/shenweizhang/Desktop/ai/run_test_015
+# """
 TEST_QUERY="""
-做一个个人财务管理应用。
-后端 FastAPI + SQLite + requirements.txt + venv 虚拟环境。
-前端纯 HTML/CSS/JS（单页应用，无需框架）+ Chart.js（CDN引入，不需要npm install）。
-功能：
-1. 分类管理（CRUD，预置 收入/支出 两大类，支出下预置 餐饮/交通/购物/娱乐/居住/医疗/教育/其他）
-2. 交易记录（CRUD，每笔记录关联分类、金额、日期、备注，支持按月份筛选和分页）
-3. 月度概览仪表盘（当月总收入/总支出/结余卡片，支出分类饼图，近6个月收支趋势折线图）
-4. 预算管理（为每个支出分类设置月度预算，超出预算时醒目提醒）
-你可以先自己思考一下然后写一个 program_architecture.md 出来，里面详细的阐述了前后端怎么设计怎么联调。
-尽量fanout subagents 一个前端，一个后端，并且告诉前端agent和后端agent 参考你刚刚写的 architecture 文件去做。
-前后端 agent 写完之后，你去请检查代码并确保其正确性。
-所有代码输出到 /Users/shenweizhang/Desktop/ai/run_test_009
+测试任务，严格按以下步骤执行：
+
+1. 创建计划，并用 bash 创建目录 /Users/shenweizhang/Desktop/ai/run_test_015
+
+2. 并发3个 programmer subagent，分别写三篇文章，都保存到 /Users/shenweizhang/Desktop/ai/run_test_015/：
+   - 我的妈妈.md — 写一篇关于妈妈的文章（800字以上，有真情实感）
+   - 我的爸爸.md — 写一篇关于爸爸的文章（800字以上，有真情实感）
+   - 我的姥爷.md — 写一篇关于姥爷的文章（800字以上，有真情实感）
+
+3. 等第2步全部完成后，并发5个 subagent：
+   - 3个 reviewer 分别审查 我的妈妈.md、我的爸爸.md、我的姥爷.md
+   - 2个 programmer 分别写 我的小猫.md、我的女朋友.md（都保存到同一目录，各800字以上）
+
+4. 等第3步全部完成后，你自己审查 我的小猫.md 和 我的女朋友.md 的内容质量
+
+5. 调用 end_orchestration 结束
 """
 
 def _safe_initial_state(**overrides) -> dict:
@@ -34,9 +56,12 @@ def _safe_initial_state(**overrides) -> dict:
         "conversation_id": "default",
         "orchestration_id": "default",
         "plan": [],
+        "active_sub_agent_count": 0,
+        "orchestration_iteration": 0,
         "sub_agent_round_tasks": [],
         "sub_agent_outputs": {},
         "orchestration_status": "",
+        "context_summary": "",
         "should_orchestration_pause": False,
         "should_orchestration_stop": False,
         "response": "",
@@ -181,6 +206,8 @@ async def main():
     _header_printed = False
     _first_tool_in_batch = False
     _ended_properly = False
+
+    logger.debug("[MODEL_NAME] {}".format(settings.xiaomi_mimo_model_name))
 
     async for mode, data in graph.astream(
         state, config=create_orchestration_config(), stream_mode=["updates", "messages"]
