@@ -5,7 +5,6 @@ from langgraph.types import Send
 from orchestration.state import OrchestrationState
 from utils.logging import get_logger
 
-logger = get_logger(__name__)
 from orchestration.orchestrator import make_orchestrator_node, make_interrupt_node
 from orchestration.tools.bundles.orchestrator import ORCHESTRATOR_TOOLS
 from orchestration.workers import (
@@ -13,6 +12,8 @@ from orchestration.workers import (
     RESEARCHER_GRAPH,
     REVIEWER_GRAPH,
 )
+
+logger = get_logger(__name__)
 
 
 def _has_tool_calls(state: OrchestrationState) -> bool:

@@ -30,7 +30,8 @@ env/
 *~
 .DS_Store
 Thumbs.db
-# *.log
+*.log
+/collections
 .pytest_cache/
 tests/tools/_tmp/
 .coverage

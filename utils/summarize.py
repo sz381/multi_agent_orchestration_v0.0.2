@@ -1,4 +1,6 @@
-"""Conversation summarization for long-running ReAct agent loops.
+""" ⚠️ Deprecated, this file is outdated, and will be deleted soon
+
+Conversation summarization for long-running ReAct agent loops.
 
 When message history grows beyond a threshold, the oldest messages
 are compressed into a concise summary that preserves key context,
