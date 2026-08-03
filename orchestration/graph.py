@@ -281,17 +281,52 @@ def _collect_sub_agent_results(state: OrchestrationState) -> dict:
         counter_before=state.get("active_sub_agent_count", "N/A"),
     )
 
+    counter = state.get("active_sub_agent_count", 0)
+    remaining = counter - len(tasks)
+
+    # Negative-counter drift (8_03_007): when a previous collect failed to
+    # clear the round tasks (merge-reducer reset regression), stale tasks
+    # re-dispatch every round and each collect keeps subtracting — the
+    # counter spirals negative. Log it so the anomaly is visible; the
+    # remaining <= 0 branch below still injects results and wakes the
+    # orchestrator.
+    if counter < 0:
+        logger.warning(
+            "collect_negative_counter",
+            counter_before=counter,
+            task_count=len(tasks),
+            reason="counter drifted below zero — stale round tasks were re-dispatched",
+        )
+
     updates = {
         "sub_agent_round_tasks": [],
         "active_sub_agent_count": -len(tasks),
     }
-    
+
+    # Phantom-counter self-heal (8_03_006): when the model fires several
+    # fanout_subagents calls in one round, each Command adds its own task
+    # count to the counter (operator.add) — with an overwrite reducer the
+    # tasks themselves got dropped, leaving a positive counter with no
+    # branches behind. All branches have finished once collect runs
+    # (LangGraph superstep barrier), so any remaining positive counter is a
+    # phantom: zero it and still wake the orchestrator instead of ENDing
+    # the graph mid-run.
+    if remaining > 0:
+        logger.warning(
+            "collect_phantom_counter_self_heal",
+            counter_before=counter,
+            task_count=len(tasks),
+            reason="counter exceeds dispatched tasks — parallel fanout artifact, zeroed",
+        )
+        updates["active_sub_agent_count"] = -counter
+        remaining = 0
+
     # When all the child agents have completed their tasks, 
     # the summary results are injected into the parent messages 
     # (when the orchestrator is awakened, the completion signals 
     # and results can be seen, and it is no longer mistakenly believed 
     # that the task is still executing asynchronously).
-    if state.get("active_sub_agent_count", 0) - len(tasks) <= 0:
+    if remaining <= 0:
         injections = _build_result_injections(state)
         if injections:
             logger.info("collect_inject_sub_agent_results", count=len(injections))

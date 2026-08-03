@@ -28,14 +28,14 @@ TEST_QUERY = """
 你可以先自己思考一下然后写一个 program_architecture.md 出来，里面详细的阐述了前后端怎么设计怎么联调。
 尽量fanout subagents 一个前端，一个后端，并且告诉前端agent和后端agent 参考你刚刚写的 architecture 文件去做。
 前后端 agent 写完之后，你去请检查代码并确保其正确性。
-所有代码输出到 /Users/shenweizhang/Desktop/ai/run_test_028
+所有代码输出到 /Users/shenweizhang/Desktop/ai/run_test_033
 """
 # TEST_QUERY="""
 # 测试任务，严格按以下步骤执行：
 
-# 1. 创建计划，并用 bash 创建目录 /Users/shenweizhang/Desktop/ai/run_test_015
+# 1. 创建计划，并用 bash 创建目录 /Users/shenweizhang/Desktop/ai/run_test_032
 
-# 2. 并发3个 programmer subagent，分别写三篇文章，都保存到 /Users/shenweizhang/Desktop/ai/run_test_015/：
+# 2. 并发3个 programmer subagent，分别写三篇文章，都保存到 /Users/shenweizhang/Desktop/ai/run_test_032/：
 #    - 我的妈妈.md — 写一篇关于妈妈的文章（800字以上，有真情实感）
 #    - 我的爸爸.md — 写一篇关于爸爸的文章（800字以上，有真情实感）
 #    - 我的姥爷.md — 写一篇关于姥爷的文章（800字以上，有真情实感）

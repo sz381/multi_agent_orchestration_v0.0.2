@@ -46,6 +46,38 @@ class SubAgentRoundTaskItem(TypedDict):
     subagent_name: str
 
 
+def _merge_round_tasks(
+    left: list[SubAgentRoundTaskItem] | None,
+    right: list[SubAgentRoundTaskItem] | None,
+) -> list[SubAgentRoundTaskItem]:
+    """Merge fanout round tasks by task_id (parallel-fanout fallback).
+
+    Two write semantics must be supported:
+    - Dispatch (right is a non-empty list): merge with the current list by
+      task_id so parallel fanout_subagents calls in one round all survive
+      (8_03_006: 3 reviewer tasks vanished under an overwrite reducer,
+      counter inflated 3+2=5 while only 2 branches ran → collect never
+      reached zero → graph ENDed early). A repeated task_id keeps the
+      later write.
+    - Reset (right is an empty list): the collect barrier clears the round
+      tasks after all branches finish; an empty write must actually empty
+      the list, otherwise old tasks linger and get re-dispatched forever
+      (8_03_007: 3 tasks re-ran 4x rewriting the same files, and new
+      fanout_subagents calls were rejected as "duplicate" against the
+      stale list).
+    """
+    if right is None:
+        return list(left or [])
+    if not right:
+        return []
+    if not left:
+        return list(right)
+    merged: dict[str, SubAgentRoundTaskItem] = {t["task_id"]: t for t in left}
+    for t in right:
+        merged[t["task_id"]] = t
+    return list(merged.values())
+
+
 class OrchestrationState(TypedDict):
     """Top-level state carried through the orchestrator graph.
 
@@ -76,7 +108,7 @@ class OrchestrationState(TypedDict):
     user_query: str
     plan: Annotated[list[Plan] | None, lambda _left, right: right]
     active_sub_agent_count: Annotated[int, operator.add]
-    sub_agent_round_tasks: Annotated[list[SubAgentRoundTaskItem], lambda _left, right: right]
+    sub_agent_round_tasks: Annotated[list[SubAgentRoundTaskItem], _merge_round_tasks]
     sub_agent_outputs: Annotated[dict, lambda left, right: {**left, **right}]
     orchestration_status: str
     orchestration_iteration: int
