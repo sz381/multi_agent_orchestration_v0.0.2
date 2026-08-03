@@ -2,7 +2,6 @@
 LangGraph state definitions for the workers subgraph.
 """
 
-import operator
 from typing import TypedDict, Annotated, NotRequired
 
 from langgraph.graph.message import add_messages
@@ -53,7 +52,7 @@ class SubAgentState(TypedDict):
     task_description: str
     sub_agent_messages: Annotated[list, add_messages]
     sub_agent_outputs: Annotated[dict, lambda left, right: {**left, **right}]
-    file_changes: Annotated[list, operator.add]
+    file_changes: Annotated[list, lambda left, right: left + [p for p in right if p not in left]]       # 去重合并（保持顺序）：同一文件被多次修改只记一次，    # 避免 _collect_file_changes 跨轮累加导致 artifacts 重复（8_03_002）。
     total_tokens: int
     sub_agent_iteration: int
     sub_agent_start_at: str
