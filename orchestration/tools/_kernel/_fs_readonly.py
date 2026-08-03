@@ -9,10 +9,47 @@ grep_tool (regex search).
 import os
 import regex as re
 import json
-import glob
 import fnmatch
 
 from utils.common import get_workspace
+
+
+# Directories pruned by both glob_tool and grep_tool: never returned and
+# never descended into. Keeps dependency/cache noise out of the context.
+# To scan inside one explicitly, set dir_path to it directly.
+_EXCLUDE_DIRS = frozenset({
+    # Version control
+    ".git", ".svn", ".hg", ".bzr",
+    # Virtual environments
+    "venv", ".venv",
+    # Python dependencies, caches and test artifacts
+    "__pycache__", ".tox", ".mypy_cache", ".pytest_cache", ".ruff_cache",
+    ".hypothesis", ".pyre", ".eggs", ".pdm-build",
+    # Node / frontend deps and build caches
+    "node_modules", "bower_components", "jspm_packages", ".npm", ".yarn",
+    ".pnpm-store", ".turbo", ".next", ".nuxt", ".svelte-kit", ".vite",
+    ".parcel-cache", ".webpack",
+    # IDE / editor settings
+    ".vscode", ".idea", ".intellij", ".cursor", ".eclipse", ".fleet", ".zed",
+    # Tool / runtime caches
+    ".qoder", ".cache", ".langchain", ".langsmith", ".chroma", ".streamlit",
+    ".gradle", ".m2", ".cargo", ".rustup", ".terraform", ".serverless",
+    ".amplify", ".trash", ".Trash",
+    # Build outputs and coverage reports
+    "dist", "build", "out", "target", "coverage", "htmlcov",
+    # Log and temp dirs
+    "log", "logs", ".log", "tmp", "temp",
+})
+
+# File-level noise filtered from glob results (and skipped by grep walk).
+_EXCLUDE_FILES = frozenset({".DS_Store", "Thumbs.db", "desktop.ini"})
+
+# Hard caps for glob_tool (kept module-level so tests can shrink them).
+_GLOB_MAX_RESULTS = 200
+_GLOB_MAX_SCAN = 5000
+
+# Maximum file size to read in bytes (1MB).
+MAX_READ_SIZE = 1 * 1024 * 1024
 
 
 def view_file(
@@ -94,8 +131,6 @@ def view_file(
             "status": "error",
             "message": f"'{file_path}' is a directory."
         }, ensure_ascii=False)
-
-    MAX_READ_SIZE = 1 * 1024 * 1024
 
     try:
         with open(file_path, "r", encoding=encoding) as f:
@@ -198,6 +233,70 @@ def view_file(
     return json.dumps(result, ensure_ascii=False)
 
 
+def _glob_emit(path: str, results: list[str], limits: dict) -> None:
+    """
+    Record one match, enforcing the result/scan caps in ``limits``.
+    """
+    limits["total"] += 1
+    if len(results) < _GLOB_MAX_RESULTS:
+        results.append(path)
+    if limits["total"] >= _GLOB_MAX_SCAN:
+        limits["stop"] = True
+
+
+def _glob_walk(
+    dirpath: str,
+    parts: list[str],
+    results: list[str],
+    limits: dict,
+) -> None:
+    """Recursively collect paths matching glob ``parts``.
+
+    ``**`` matches zero or more directory levels; any other segment matches
+    exactly one level via ``fnmatch``. Directories in ``_EXCLUDE_DIRS`` are
+    pruned — never returned and never descended into. ``limits`` enforces
+    the hard scan caps and early termination.
+    """
+    if limits["stop"]:
+        return
+
+    if not parts:
+        _glob_emit(dirpath, results, limits)
+        return
+
+    head, *tail = parts
+
+    try:
+        entries = list(os.scandir(dirpath))
+    except OSError:
+        return
+
+    if head == "**":
+        # '**' matches zero levels: apply the remaining parts here.
+        _glob_walk(dirpath, tail, results, limits)
+        # '**' matches one or more levels: descend into subdirectories.
+        for entry in entries:
+            if entry.is_dir(follow_symlinks=False) and entry.name not in _EXCLUDE_DIRS:
+                _glob_walk(entry.path, parts, results, limits)
+                if limits["stop"]:
+                    break
+    else:
+        for entry in entries:
+            if not fnmatch.fnmatch(entry.name, head):
+                continue
+            if tail:
+                if entry.is_dir(follow_symlinks=False) and entry.name not in _EXCLUDE_DIRS:
+                    _glob_walk(entry.path, tail, results, limits)
+            else:
+                if entry.name in _EXCLUDE_FILES:
+                    continue
+                if entry.is_dir(follow_symlinks=False) and entry.name in _EXCLUDE_DIRS:
+                    continue
+                _glob_emit(entry.path, results, limits)
+            if limits["stop"]:
+                break
+
+
 def glob_tool(
     pattern: str,
     dir_path: str = ".",
@@ -220,7 +319,7 @@ def glob_tool(
             "status": "error",
             "message": f"Cannot resolve workspace: {exc}"
         }, ensure_ascii=False)
-    
+
     if not pattern or not pattern.strip():
         return json.dumps({
             "status": "error",
@@ -251,45 +350,48 @@ def glob_tool(
             "status": "error",
             "message": f"Invalid path: {exc}"
         }, ensure_ascii=False)
-        
+
     safe_root = safe_root.rstrip(os.sep) + os.sep
-    
+
     if not allow_external_reads and not (search_dir + os.sep).startswith(safe_root):
         return json.dumps({
             "status": "error",
             "message": f"Access to '{dir_path}' is denied."
         }, ensure_ascii=False)
-        
+
     if not os.path.isdir(search_dir):
         return json.dumps({
             "status": "error",
             "message": f"'{search_dir}' is not a directory."
         }, ensure_ascii=False)
 
-    full_pattern = os.path.join(search_dir, pattern)
-    MAX_RESULTS = 200
-    MAX_SCAN = 5000
+    parts = [p for p in pattern.split("/") if p]
+
+    if not parts:
+        return json.dumps({
+            "status": "error",
+            "message": "pattern must not be empty."
+        }, ensure_ascii=False)
+
     file_matches: list[str] = []
-    total = 0
-    
+    limits = {"total": 0, "stop": False}
+
     try:
-        for file_path in glob.iglob(full_pattern, recursive=True):
-            total += 1
-            
-            if total > MAX_SCAN:
-                total = MAX_SCAN
-                break
-            
-            if len(file_matches) < MAX_RESULTS:
-                file_matches.append(file_path)
+        _glob_walk(search_dir, parts, file_matches, limits)
+    except RecursionError:
+        return json.dumps({
+            "status": "error",
+            "message": "Scan failed: directory tree is too deep."
+        }, ensure_ascii=False)
     except OSError as exc:
         return json.dumps({
             "status": "error",
             "message": f"Scan failed: {exc}"
         }, ensure_ascii=False)
 
+    total = min(limits["total"], _GLOB_MAX_SCAN)
     file_matches.sort()
-    truncated = total >= MAX_SCAN or len(file_matches) >= MAX_RESULTS
+    truncated = total >= _GLOB_MAX_SCAN or len(file_matches) >= _GLOB_MAX_RESULTS
 
     return json.dumps({
         "status": "ok",
@@ -406,10 +508,11 @@ def grep_tool(
     else:
         try:
             for dirpath, dirnames, filenames in os.walk(real_path):
-                skip_dirs = {".git", "__pycache__", "node_modules", ".venv", ".tox", ".mypy_cache", ".pytest_cache"}
-                dirnames[:] = [d for d in dirnames if d not in skip_dirs]
+                dirnames[:] = [d for d in dirnames if d not in _EXCLUDE_DIRS]
                 
                 for fname in filenames:
+                    if fname in _EXCLUDE_FILES:
+                        continue
                     if len(files) >= MAX_FILES:
                         files_truncated = True
                         break

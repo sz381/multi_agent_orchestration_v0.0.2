@@ -10,12 +10,20 @@ import json
 import asyncio
 import tempfile
 import weakref
+import fnmatch
+import shutil
 
 from utils.common import get_workspace
 
+# Maximum items deleted per single call (pattern mode).
+_CLEAN_MAX_ITEMS = 500
 
+# Serializes whole-tree deletions so parallel sub-agents cannot interleave.
+_clean_lock = asyncio.Lock()
+
+
+# Weak dictionary of per-file async locks for serializing writes.
 _file_locks: weakref.WeakValueDictionary = weakref.WeakValueDictionary()
-
 
 def _get_file_lock(file_path: str) -> asyncio.Lock:
     """
@@ -360,3 +368,136 @@ async def write_file(
                 "new": content[:MAX_DIFF_SIZE] + "\n... [truncated]" if len(content) > MAX_DIFF_SIZE else content,
             },
         }, ensure_ascii=False)
+
+
+async def clean_dir(
+    dir_path: str,
+    patterns: list[str] | None = None,
+) -> str:
+    """Safely delete a file or directory inside the workspace.
+
+    Two modes:
+    - ``patterns=None``: recursively delete ``dir_path`` itself (file or dir).
+    - ``patterns`` given: delete only entries under ``dir_path`` whose NAME
+      matches any pattern (fnmatch), keeping ``dir_path`` itself.
+
+    Guards: the workspace root is never deletable; ``..`` / symlink escapes
+    are rejected via realpath; at most ``_CLEAN_MAX_ITEMS`` items per call.
+    All targets are collected and validated before anything is deleted.
+
+    Args:
+        dir_path: File or directory path (workspace-relative or absolute).
+        patterns: Optional fnmatch patterns matched against entry names.
+
+    Returns:
+        JSON with status, deleted paths (workspace-relative), and count.
+    """
+    if not dir_path or not dir_path.strip():
+        return json.dumps({
+            "status": "error",
+            "message": "dir_path must not be empty."
+        }, ensure_ascii=False)
+
+    try:
+        safe_root = os.path.realpath(get_workspace())
+    except Exception as exc:
+        return json.dumps({
+            "status": "error",
+            "message": f"Cannot resolve workspace: {exc}"
+        }, ensure_ascii=False)
+
+    dir_path = os.path.expanduser(dir_path)
+
+    try:
+        if not os.path.isabs(dir_path):
+            target = os.path.realpath(os.path.join(safe_root, dir_path))
+        else:
+            target = os.path.realpath(dir_path)
+    except OSError as exc:
+        return json.dumps({
+            "status": "error",
+            "message": f"Invalid path: {exc}"
+        }, ensure_ascii=False)
+
+    safe_root = safe_root.rstrip(os.sep) + os.sep
+
+    if target == safe_root.rstrip(os.sep):
+        return json.dumps({
+            "status": "error",
+            "message": "Refusing to delete the workspace root."
+        }, ensure_ascii=False)
+
+    if not target.startswith(safe_root):
+        return json.dumps({
+            "status": "error",
+            "message": f"Access to '{dir_path}' is denied."
+        }, ensure_ascii=False)
+
+    if not os.path.exists(target):
+        return json.dumps({
+            "status": "error",
+            "message": f"'{target}' does not exist."
+        }, ensure_ascii=False)
+
+    to_delete: list[str] = []
+
+    try:
+        if os.path.isfile(target) or not patterns:
+            to_delete.append(target)
+        else:
+            for dirpath, dirnames, filenames in os.walk(target):
+                for d in [d for d in dirnames if any(fnmatch.fnmatch(d, p) for p in patterns)]:
+                    to_delete.append(os.path.join(dirpath, d))
+                    dirnames.remove(d)
+                for f in filenames:
+                    if any(fnmatch.fnmatch(f, p) for p in patterns):
+                        to_delete.append(os.path.join(dirpath, f))
+    except OSError as exc:
+        return json.dumps({
+            "status": "error",
+            "message": f"Cannot scan '{target}': {exc}"
+        }, ensure_ascii=False)
+
+    if not to_delete:
+        return json.dumps({
+            "status": "ok",
+            "message": f"Nothing matched in '{dir_path}'.",
+            "deleted": [],
+            "count": 0,
+        }, ensure_ascii=False)
+
+    if len(to_delete) > _CLEAN_MAX_ITEMS:
+        return json.dumps({
+            "status": "error",
+            "message": (
+                f"Would delete {len(to_delete)} items, exceeding the "
+                f"{_CLEAN_MAX_ITEMS} per-call limit. Narrow the patterns "
+                f"or target subdirectories."
+            )
+        }, ensure_ascii=False)
+
+    to_delete.sort()
+    deleted: list[str] = []
+
+    async with _clean_lock:
+        for path in to_delete:
+            try:
+                if os.path.isdir(path) and not os.path.islink(path):
+                    shutil.rmtree(path)
+                else:
+                    os.unlink(path)
+            except OSError as exc:
+                return json.dumps({
+                    "status": "error",
+                    "message": f"Cannot delete {path}: {exc}",
+                    "deleted": [os.path.relpath(p, safe_root) for p in deleted],
+                    "count": len(deleted),
+                }, ensure_ascii=False)
+            deleted.append(path)
+
+    return json.dumps({
+        "status": "ok",
+        "message": f"[DELETED] {len(deleted)} item(s)",
+        "deleted": [os.path.relpath(p, safe_root) for p in deleted],
+        "count": len(deleted),
+    }, ensure_ascii=False)

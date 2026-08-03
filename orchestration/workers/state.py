@@ -3,9 +3,11 @@ LangGraph state definitions for the workers subgraph.
 """
 
 import operator
-from typing import TypedDict, Annotated
+from typing import TypedDict, Annotated, NotRequired
 
 from langgraph.graph.message import add_messages
+
+from orchestration.contexts.auto_compact import CompactionCheckpoint
 
 
 class Plan(TypedDict):
@@ -17,6 +19,7 @@ class Plan(TypedDict):
         phase_status:       One of ``pending``, ``in_progress``, or ``done``.
         phase_description:  What this phase should accomplish.
     """
+    
     phase_id: str
     phase_name: str
     phase_status: str
@@ -34,14 +37,15 @@ class SubAgentState(TypedDict):
         task_description:                 What the sub-agent should do in this task.
         sub_agent_messages:               Full message history.
         sub_agent_outputs:                Merged outputs from completed sub-agents.
-        output_artifacts:                 Accumulated output artifacts (files, etc.).
         total_tokens:                     Running token usage counter.
         sub_agent_iteration:              ReAct loop iteration count.
         sub_agent_start_at:               ISO timestamp when sub-agent started.
         sub_agent_time_elapsed:           Total elapsed time in seconds.
         sub_agent_error_message:          Last error message, if any.
-        sub_agent_context_summary:        Summary of conversation context.
+        compaction_checkpoint:            Auto-Compact compression cursor (T2 incremental compression state).
+        file_changes:                     Real-time record of files written/modified
     """
+
     sub_agent_id: str
     sub_agent_name: str
     task_id: str
@@ -49,13 +53,13 @@ class SubAgentState(TypedDict):
     task_description: str
     sub_agent_messages: Annotated[list, add_messages]
     sub_agent_outputs: Annotated[dict, lambda left, right: {**left, **right}]
-    output_artifacts: Annotated[list, operator.add]
+    file_changes: Annotated[list, operator.add]
     total_tokens: int
     sub_agent_iteration: int
     sub_agent_start_at: str
     sub_agent_time_elapsed: float
     sub_agent_error_message: str
-    sub_agent_context_summary: str
+    compaction_checkpoint: NotRequired[CompactionCheckpoint | None]
 
 
 class ProgrammerSubAgentState(SubAgentState):
@@ -65,6 +69,7 @@ class ProgrammerSubAgentState(SubAgentState):
     Attributes:
         sub_agent_plan:                 Execution plan for the programmer.
     """
+
     sub_agent_plan: Annotated[list[Plan] | None, lambda _left, right: right]
 
 
@@ -72,6 +77,7 @@ class ResearcherSubAgentState(SubAgentState):
     """
     SubAgentState specialised for the researcher sub-agent.
     """
+
     pass
 
 
@@ -79,4 +85,5 @@ class ReviewerSubAgentState(SubAgentState):
     """
     SubAgentState specialised for the reviewer sub-agent.
     """
+
     pass

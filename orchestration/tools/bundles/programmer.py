@@ -7,6 +7,7 @@ Thin wrappers that bind kernel implementations to ``@tool`` decorators.
 ├── grep_tool
 ├── str_replace
 ├── write_file
+├── clean_dir
 ├── bash
 ├── web_search
 ├── fetch_web
@@ -30,6 +31,7 @@ from orchestration.tools.description.bash import TOOL_DESCRIPTION as BASH_DESCRI
 from orchestration.tools._kernel._fs_mutate import (
     str_replace as _str_replace,
     write_file as _write_file,
+    clean_dir as _clean_dir,
 )
 from orchestration.tools._kernel._fs_readonly import (
     view_file as _view_file,
@@ -136,6 +138,17 @@ async def write_file(
     )
 
 
+@tool("clean_dir", description=FS_MUTATE_DESCRIPTION["clean_dir"])
+async def clean_dir(
+    dir_path: str,
+    patterns: list[str] | None = None,
+) -> str:
+    return await _clean_dir(
+        dir_path,
+        patterns,
+    )
+
+
 @tool("bash", description=BASH_DESCRIPTION["bash"])
 def bash(
     cmd: str,
@@ -226,13 +239,16 @@ def delete_plan(
     })
 
 
-"""All tools available to the programmer sub-agent."""
+"""
+All tools available to the programmer sub-agent.
+"""
 PROGRAMMER_TOOLS = [
     view_file,
     glob_tool,
     grep_tool,
     str_replace,
     write_file,
+    clean_dir,
     bash,
     web_search,
     fetch_web,

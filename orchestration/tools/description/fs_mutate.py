@@ -25,4 +25,17 @@ TOOL_DESCRIPTION = {
         "Use str_replace for small edits to existing files — do NOT rewrite whole files for minor changes.\n"
         "Limits: content max 1MB. diff fields truncated at 4KB."
     ),
+    "clean_dir": (
+        "Safely delete files/directories inside the workspace. Use this INSTEAD of rm -rf in bash "
+        "(rm -rf with absolute paths is blocked by the security policy).\n"
+        "Params:\n"
+        "- dir_path: target file or directory (workspace-relative or absolute)\n"
+        "- patterns: optional list of name patterns (fnmatch, e.g. ['__pycache__', '*.pyc']). "
+        "When given, only matching entries under dir_path are deleted and dir_path itself is KEPT.\n"
+        "Examples: clean_dir('backend/venv') → removes the whole venv tree; "
+        "clean_dir('backend', ['__pycache__', '*.pyc']) → strips caches, keeps backend.\n"
+        "Guards: the workspace root can NEVER be deleted; '..'/symlink escapes rejected; "
+        "max 500 items per call (narrow patterns or split dirs if exceeded).\n"
+        "Deletion is PERMANENT — glob_tool first to confirm what matches."
+    ),
 }

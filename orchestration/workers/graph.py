@@ -7,6 +7,7 @@ Provides:
     build_react_agent(*, name, tools, system_prompt, state_cls) → CompiledStateGraph
 """
 
+import json
 from typing import Literal
 
 from langgraph.graph import StateGraph, START, END
@@ -18,6 +19,84 @@ from orchestration.workers.nodes.prepare import make_prepare
 from orchestration.workers.nodes.llm import make_llm
 from orchestration.workers.nodes.summarize import make_summarize
 
+from utils.logging import get_logger
+
+logger = get_logger(__name__)
+
+# File-producing tools → "path" field in successful results. Artifacts are
+# recorded in real time because T2 compaction removes early ToolMessages,
+# making them unrecoverable from message history (8_02_005: artifacts_count=0).
+_FILE_PRODUCING_TOOLS = {"write_file": "path", "str_replace": "path"}
+
+# Circuit breaker for result parsing failures: consecutive failures reaching
+# the threshold indicate a tool contract change (systemic failure); raise to
+# stop instead of silently dropping artifacts.
+_file_change_parse_failures = 0
+_FILE_CHANGE_PARSE_FAILURES_LIMIT = 3
+
+
+def _collect_file_changes(tool_messages: list) -> list[str]:
+    """Extract file paths successfully written/modified in this round of tool results.
+
+    Deduplicated and order-preserving.
+    """
+    global _file_change_parse_failures
+    changes: list[str] = []
+    
+    for m in tool_messages:
+        if m.type != "tool":
+            continue
+
+        if getattr(m, "name", "") not in _FILE_PRODUCING_TOOLS:
+            continue
+
+        try:
+            payload = json.loads(str(m.content))
+            _file_change_parse_failures = 0
+        except (TypeError, ValueError, json.JSONDecodeError) as exc:
+            _file_change_parse_failures += 1
+            # A parse failure silently drops this artifact from file_changes
+            # (which feeds summarize's artifacts). Log it; consecutive
+            # failures are treated as a contract change → raise to stop.
+            logger.warning(
+                "write_tool 结果解析失败, ⚠️请注意排查",
+                tool_name=getattr(m, "name", "N/A"),
+                message_id=getattr(m, "id", "N/A"),
+                content_preview=str(m.content)[:200],
+                consecutive_failures=_file_change_parse_failures,
+            )
+            if _file_change_parse_failures >= _FILE_CHANGE_PARSE_FAILURES_LIMIT:
+                raise RuntimeError(
+                    f"{getattr(m, 'name', 'tool')} 结果连续 "
+                    f"{_FILE_CHANGE_PARSE_FAILURES_LIMIT} 次解析失败, 疑似工具契约变更"
+                ) from exc
+            continue
+
+        if payload.get("status") != "ok":
+            continue
+
+        path = str(payload.get("path") or "").strip()
+        if path and path not in changes:
+            changes.append(path)
+
+    return changes
+
+
+def _make_tools_node(tools: list):
+    """
+    Wrap ToolNode: after execution, record written file paths into state.file_changes in real time.
+    """
+    tool_node = ToolNode(tools, messages_key="sub_agent_messages")
+
+    async def node(state: dict, config=None) -> dict:
+        result = await tool_node.ainvoke(state, config=config)
+        changes = _collect_file_changes(result.get("sub_agent_messages") or [])
+        if changes:
+            result["file_changes"] = changes
+        return result
+
+    return node
+
 
 def _build_react_graph(
     *,
@@ -27,8 +106,23 @@ def _build_react_graph(
     tools: list | None,
     summarize_node,
 ):
-    """
-    Pure graph builder
+    """Build and compile the ReAct sub-agent graph.
+
+    With tools:    prepare → llm ↔ tools → summarize
+    Without tools: prepare → llm → summarize
+
+    The llm node is followed by a conditional edge: tool-calling responses go
+    to the tools node, plain responses go to the summarize node.
+
+    Args:
+        state_cls:      Sub-agent state schema (TypedDict).
+        prepare_node:   Node that injects identity and system prompt.
+        llm_node:       Node that invokes the LLM with bound tools.
+        tools:          Tool list; None/empty builds a tool-less graph.
+        summarize_node: Node that extracts the final response and artifacts.
+
+    Returns:
+        Compiled StateGraph ready to run as a sub-graph node.
     """
     builder = StateGraph(state_cls)
 
@@ -46,16 +140,14 @@ def _build_react_graph(
 
         return "summarize"
 
-    # add nodes
     builder.add_node("prepare", prepare_node)
     builder.add_node("llm", llm_node)
     builder.add_node("summarize", summarize_node)
 
     has_tools = tools and len(tools) > 0
     if has_tools:
-        builder.add_node("tools", ToolNode(tools, messages_key="sub_agent_messages"))
+        builder.add_node("tools", _make_tools_node(tools))
 
-    # add edges
     builder.add_edge(START, "prepare")
     builder.add_edge("prepare", "llm")
 

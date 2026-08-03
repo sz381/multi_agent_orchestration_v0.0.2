@@ -9,7 +9,14 @@ TOOL_DESCRIPTION = {
         "- pattern: glob pattern. ** = recursive (crosses /), * = one level (no /, matches dots)\n"
         "- dir_path: directory to search (default '.')\n"
         "- allow_external_reads: read outside workspace (default False)\n"
-        "Limits: max 500 results, 5000 scanned. Check 'truncated' in response.\n"
+        "EXCLUDED by default (not returned, not searched): dependency dirs "
+        "(venv, .venv, node_modules, .npm, .yarn), version control (.git, .svn), "
+        "IDE settings (.vscode, .idea, .cursor, .intellij), tool caches "
+        "(__pycache__, .qoder, .cache, .gradle, .m2, .cargo), build outputs "
+        "(dist, build, out, target, coverage), logs/temp (log, logs, .log, tmp), "
+        "and noise files (.DS_Store). To scan inside an excluded dir, set "
+        "dir_path to it directly.\n"
+        "Limits: max 200 results, 5000 scanned. Check 'truncated' in response.\n"
         "No brace expansion {a,b} or extglob !(). Use multiple calls or regex via grep."
     ),
     "view_file": (
@@ -20,6 +27,10 @@ TOOL_DESCRIPTION = {
         "- limit: max lines to return, range 1-1000 (default 100)\n"
         "- encoding: file encoding (default 'utf-8', try 'gbk'/'latin-1')\n"
         "- allow_external_reads: read outside workspace (default False)\n"
+        "EFFICIENCY RULES (save turns):\n"
+        "- For files under ~1000 lines, set limit=1000 to read the WHOLE file in ONE call — do NOT paginate.\n"
+        "- Need several files? Issue MULTIPLE view_file calls in the SAME turn — they execute in parallel.\n"
+        "- Never re-read a file you already saw this task, unless you edited it. Its content is already in context.\n"
         "Limits: max 1MB read. If 'truncated' is true, use offset=end_line+1 to continue.\n"
         "Check 'remaining' field — if >0, you have NOT seen the whole file."
     ),

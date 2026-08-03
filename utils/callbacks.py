@@ -61,6 +61,7 @@ class OrchestrationCallBack(AsyncCallbackHandler):
                     }
 
                 if any(identity.values()):
+                    identity["llm_role"] = str(metadata.get("llm_role", "agent"))
                     self._llm_ctx[str(run_id)] = identity
                     logger.info(
                         "LLM Start",
@@ -70,6 +71,7 @@ class OrchestrationCallBack(AsyncCallbackHandler):
                         prompt_count=len(prompts),
                         run_id=run_id,
                         tags=tags,
+                        llm_role=identity["llm_role"],
                     )
             # Safety net: warn if dicts grow beyond limit, but do NOT clear
             # in-flight entries — clearing would break identity resolution for
@@ -122,6 +124,7 @@ class OrchestrationCallBack(AsyncCallbackHandler):
                 task_id=identity.get("task_id", ""),
                 has_tool_calls=has_tool_calls,
                 run_id=run_id,
+                llm_role=identity.get("llm_role", "agent"),
             )
         except Exception:
             logger.warning("callback_error", handler="on_llm_end", exc_info=True)

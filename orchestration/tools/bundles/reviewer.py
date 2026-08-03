@@ -163,7 +163,9 @@ async def fetch_web(
     )
 
 
-"""All tools available to the reviewer sub-agent."""
+"""
+All tools available to the reviewer sub-agent.
+"""
 REVIEWER_TOOLS = [
     view_file,
     glob_tool,

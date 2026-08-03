@@ -1,5 +1,5 @@
 """
-Sub-Agent Graph Registry — one compiled sub-graph per sub-agent type.
+Sub-Agent Graph Registry
 
 Provides:
     PROGRAMMER_GRAPH  — full coding toolkit

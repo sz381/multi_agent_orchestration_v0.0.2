@@ -163,7 +163,9 @@ async def fetch_web(
     )
 
 
-"""All tools available to the researcher sub-agent."""
+"""
+All tools available to the researcher sub-agent.
+"""
 RESEARCHER_TOOLS = [
     view_file,
     glob_tool,

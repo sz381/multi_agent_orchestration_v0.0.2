@@ -52,7 +52,7 @@ orchestration 完成后：提取关键信息（AI 决策、工具结果摘要、
 - 检索结果注入为 SystemMessage 段 `## RELEVANT EXPERIENCE`（≤1k tokens）
 
 #### 六、根因映射（对应下文 1-4）
-
+13k 缓冲：不主动触发，是阈值减项——保证压缩器自己调用时有空间
 | 根因 | 解决方案 |
 |---|---|
 | 1. LLM 节点无 trim/summarize | T2 Auto-Compact 挂载 orchestrator / llm 节点边界 |

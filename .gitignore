@@ -44,3 +44,4 @@ frontend/build/
 *.tsbuildinfo
 *.local
 .langgraph_api/
+.qoder
