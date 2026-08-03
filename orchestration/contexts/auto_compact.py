@@ -42,7 +42,7 @@ from utils.settings import settings
 logger = get_logger(__name__)
 
 MAX_FAILURES_BEFORE_OPEN = 3                        # 熔断阈值：连续失败 3 次
-DEFAULT_KEEP_RECENT = 6                             # 尾部保留窗口：最近 N 条消息永不压缩（8→6, 扩大T2可压窗口）
+DEFAULT_KEEP_RECENT = 4                             # 尾部保留窗口：最近 N 条消息永不压缩（8→6→4, 与 pipeline.keep_recent 对齐；8_03_014：轻任务消息少, 大窗口致 T1/T2 无物可压）
 DEFAULT_MIN_MESSAGES = 6                            # 待压缩消息少于该值时不调用模型（防微压缩）
 DEFAULT_SUMMARY_MAX_TOKENS = 512                    # 摘要模型输出上限
 CONTENT_PREVIEW_LEN = 400                           # 摘要 prompt 中单条消息内容预览长度
@@ -59,7 +59,7 @@ CONTENT_PREVIEW_LEN = 400                           # 摘要 prompt 中单条消
 # 解除保护进入 T2 压缩窗口；被保护组内"非最新 path"的 ToolMessage 保留
 # 配对结构，content 替换为 STALE 占位符（token 大降且提示模型勿重读）。
 PROTECTED_CONTENT_TOOLS = frozenset({"view_file"})
-MAX_PROTECTED_CONTENT_TOKENS = 20_000               # 保护容量上限（60K→20K：原上限高于sub-agent 40K预算致T2永不触发, 8_03_002验证）
+MAX_PROTECTED_CONTENT_TOKENS = 16_000               # 保护容量上限（60K→20K→16K：随SUB_AGENT_BUDGET下调为18K, 保持保护预算<总预算防T2空转, 8_03_002验证）
 STALE_PLACEHOLDER_PREFIX = "[stale content removed:"  # 占位符前缀：已替换消息不再参与保护判定
 STALE_PLACEHOLDER_TEMPLATE = (
     "[stale content removed: {path} has a newer view_file result later in the "

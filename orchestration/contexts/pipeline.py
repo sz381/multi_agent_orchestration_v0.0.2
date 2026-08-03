@@ -45,9 +45,9 @@ from utils.logging import get_logger
 
 logger = get_logger(__name__)
 
-ORCHESTRATOR_BUDGET = 42_000              # orchestrator 上下文总预算（8_03_002: 28轮从未触发T2, 由60K下调激活压缩）
+ORCHESTRATOR_BUDGET = 34_000              # orchestrator 上下文总预算（60K→42K: 激活T2; 42K→34K: threshold 27K→19K, T1更早触发）
 ORCHESTRATOR_SUMMARY_OUTPUT_BUDGET = 2_000  # MAX_SUMMARY_OUTPUT（预算预留）
-SUB_AGENT_BUDGET = 27_000                 # sub-agent 上下文总预算（8_03_003: T1把水位压到~20K<25.5K阈值致T2全程0触发, 由40K下调使峰值轮触发LLM摘要）
+SUB_AGENT_BUDGET = 18_000                 # sub-agent 上下文总预算（40K→27K: 激活T2; 27K→18K: 8_03_013轻任务T1全程0触发, threshold 12.5K→3.5K, T1约每4-5轮触发）
 SUB_AGENT_SUMMARY_OUTPUT_BUDGET = 1_500   # MAX_SUMMARY_OUTPUT（预算预留）
 BUFFER_TOKENS = 13_000                    # 13k 缓冲：保证压缩器自身调用有空间
 
@@ -212,7 +212,10 @@ async def run_pre_request_pipeline(
     summary_output_budget: int = 2_000,
     buffer_tokens: int = BUFFER_TOKENS,
     summary_max_tokens: int = 512,
-    keep_recent: int = 8,
+    # 保留窗口（最近 N 条消息永不清理）。8→4（8_03_014：轻任务总消息仅 9~13 条,
+    # 窗口=8 时 recent_start 只有 1~5, 窗口外几乎全是 system/human, T1 无物可清;
+    # 窗口=4 后旧 bash/grep/glob 输出更快落出窗口, T1 常态化清理才有对象)。
+    keep_recent: int = 4,
     min_messages: int = 6,
     config: dict | None = None,
 ) -> PipelineResult:

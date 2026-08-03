@@ -103,7 +103,9 @@ def _exec(profile_path: str, cmd: str, cwd: str, timeout: int) -> dict:
         if _JAVA_HOME_CACHE:
             env["JAVA_HOME"] = _JAVA_HOME_CACHE
 
-    args = ["sandbox-exec", "-f", profile_path, "bash", "-c", cmd]
+    # pipefail: pipeline exit code = rightmost non-zero segment (not the last segment).
+    # Prevents `cmd 2>&1 | tail -40` from masking a real failure with tail's exit 0.
+    args = ["sandbox-exec", "-f", profile_path, "bash", "-o", "pipefail", "-c", cmd]
 
     proc = subprocess.Popen(
         args,
