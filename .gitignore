@@ -45,3 +45,7 @@ frontend/build/
 *.local
 .langgraph_api/
 .qoder
+
+# 日志与文档目录
+log/
+collections/
