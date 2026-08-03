@@ -7,4 +7,6 @@ Include ONLY information critical for continuing the task:
 - Current progress and what remains
 - Any important context (config values, tool outputs, etc.)
 
+FILE INDEX (anti-amnesia): for every code file that was read via view_file, record its path, total line count, and the rough location of key symbols/sections (e.g. \"schemas.py (142 lines): Pydantic models L1-60, helpers L60-142\"). This lets the agent re-read only the needed section via offset instead of re-reading the whole file after compaction.
+
 Format as bullet points. Be brief — omit conversational fluff, greetings, and repeated information."""

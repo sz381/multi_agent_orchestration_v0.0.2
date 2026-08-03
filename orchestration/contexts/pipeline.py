@@ -46,9 +46,9 @@ from utils.logging import get_logger
 logger = get_logger(__name__)
 
 # ── 预算常量（README 预算分配表）─────────────────────────────────────
-ORCHESTRATOR_BUDGET = 60_000              # orchestrator 上下文总预算
+ORCHESTRATOR_BUDGET = 42_000              # orchestrator 上下文总预算（8_03_002: 28轮从未触发T2, 由60K下调激活压缩）
 ORCHESTRATOR_SUMMARY_OUTPUT_BUDGET = 2_000  # MAX_SUMMARY_OUTPUT（预算预留）
-SUB_AGENT_BUDGET = 40_000                 # sub-agent 上下文总预算
+SUB_AGENT_BUDGET = 27_000                 # sub-agent 上下文总预算（8_03_003: T1把水位压到~20K<25.5K阈值致T2全程0触发, 由40K下调使峰值轮触发LLM摘要）
 SUB_AGENT_SUMMARY_OUTPUT_BUDGET = 1_500   # MAX_SUMMARY_OUTPUT（预算预留）
 BUFFER_TOKENS = 13_000                    # 13k 缓冲：保证压缩器自身调用有空间
 

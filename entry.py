@@ -16,7 +16,7 @@ from utils.logging import setup_logging
 setup_logging(dev_mode=True, log_level=logging.DEBUG)
 
 
-TEST_QUERY="""
+TEST_QUERY = """
 做一个个人财务管理应用。
 后端 FastAPI + SQLite + requirements.txt + venv 虚拟环境。
 前端纯 HTML/CSS/JS（单页应用，无需框架）+ Chart.js（CDN引入，不需要npm install）。
@@ -28,7 +28,7 @@ TEST_QUERY="""
 你可以先自己思考一下然后写一个 program_architecture.md 出来，里面详细的阐述了前后端怎么设计怎么联调。
 尽量fanout subagents 一个前端，一个后端，并且告诉前端agent和后端agent 参考你刚刚写的 architecture 文件去做。
 前后端 agent 写完之后，你去请检查代码并确保其正确性。
-所有代码输出到 /Users/shenweizhang/Desktop/ai/run_test_026
+所有代码输出到 /Users/shenweizhang/Desktop/ai/run_test_028
 """
 # TEST_QUERY="""
 # 测试任务，严格按以下步骤执行：
@@ -70,129 +70,92 @@ def _safe_initial_state(**overrides) -> dict:
         "error_message": "",
     }
     defaults.update(overrides)
-    
     if defaults["user_query"] and not defaults["messages"]:
         defaults["messages"] = [HumanMessage(content=defaults["user_query"])]
-        
     return defaults
 
 
-def _fmt_tool_result(msg: ToolMessage) -> str:
+_STATUS_ICONS = {"pending": "○", "in_progress": "◐", "done": "●"}
+
+
+def _plan_block(plan) -> str:
+    lines = ["\n" + "=" * 60, f"  PLAN ({len(plan)} phases)", "=" * 60]
+    for p in plan:
+        icon = _STATUS_ICONS.get(p.get("phase_status", ""), "○")
+        lines.append(f"  {icon} [{p.get('phase_id', '?')}] {p.get('phase_name', '?')}")
+        desc = p.get("phase_description", "")
+        if desc:
+            lines.append(f"      {desc}")
+    lines.append("=" * 60)
+    return "\n".join(lines)
+
+
+def _fanout_block(tasks) -> str:
+    lines = ["\n" + "=" * 60, f"  FANOUT — {len(tasks)} task(s) dispatched", "=" * 60]
+    for t in tasks:
+        icon = "●" if t.get("task_completion_status") else "○"
+        lines.append(f"  {icon} [{t.get('task_id', '?')}] {t.get('task_name', '?')}")
+        lines.append(f"      agent: {t.get('subagent_name', '?')} ({t.get('subagent_id', '?')})")
+        desc = t.get("task_description", "")
+        if desc:
+            lines.append(f"      {desc}")
+    lines.append("=" * 60)
+    return "\n".join(lines)
+
+
+def _tool_summary(msg: ToolMessage) -> str:
     name = msg.name
-
-    if name == "fetch_web":
-        try:
-            r = json.loads(msg.content)
-            if r.get("status") == "error":
-                return f"{r['status']}  {r['message']}"
-        except (json.JSONDecodeError, TypeError):
-            pass
-        return f"ok  {len(msg.content)} chars"
-
     try:
         r = json.loads(msg.content)
     except (json.JSONDecodeError, TypeError):
-        return msg.content[:100]
-
+        return f"[TOOL] {name}  {str(msg.content)[:100]}"
+    if name in ("make_plan", "edit_plan", "delete_plan"):
+        return _plan_block(r["plan"]) if r.get("plan") else f"[TOOL] {name}  {r.get('message', 'ok')}"
+    if name == "fanout_subagents":
+        return _fanout_block(r["tasks"]) if r.get("tasks") else f"[TOOL] {name}  {r.get('message', 'ok')}"
+    if r.get("status") == "error":
+        return f"[TOOL] {name}  error  {r.get('message', '')}"
     if name == "view_file":
-        if r["status"] == "ok":
-            return f"ok  {r['path']} ({r['total_lines']} lines)"
-        return f"{r['status']}  {r['message']}"
-
+        return f"[TOOL] {name}  ok  {r.get('path', '')} ({r.get('total_lines', '?')} lines)"
     if name == "glob_tool":
-        if r["status"] == "ok":
-            return f"ok  {r['message']} ({r['count']} files)"
-        return f"{r['status']}  {r['message']}"
-
+        return f"[TOOL] {name}  ok  {r.get('message', '')} ({r.get('count', 0)} files)"
     if name == "grep_tool":
-        if r["status"] == "ok":
-            mode = r.get("output_mode", "files_with_matches")
-            total = r.get("total_matches", 0)
-            truncated = " (truncated)" if r.get("truncated") else ""
-            if mode == "files_with_matches":
-                return f"ok  {r.get('total_files', 0)} files matched{truncated} ({total} matches)"
-            if mode == "count":
-                return f"ok  {r.get('total_files', 0)} files, {r.get('total_occurrences', 0)} occurrences{truncated} ({total} matches)"
-            if mode == "content":
-                n = len(r.get("results", []))
-                return f"ok  {n} lines{truncated} ({total} matches)"
-            return f"ok  {total} matches{truncated}"
-        return f"{r['status']}  {r['message']}"
-
-    if name in ("str_replace", "write_file"):
-        return f"{r['status']}  {r['message']}"
-
-    if name == "make_plan":
-        return f"{r.get('status', 'ok')}  {r.get('message', msg.content[:80])}"
-
-    if name == "edit_plan":
-        return f"{r.get('status', 'ok')}  {r.get('message', msg.content[:80])}"
-
-    if name == "delete_plan":
-        return f"{r.get('status', 'ok')}  {r.get('message', msg.content[:80])}"
-
-    if name in ("end_orchestration", "fanout_subagents"):
-        return f"ok  {msg.content[:80]}"
-
-    if name == "web_search":
-        if r["status"] == "ok":
-            n = r.get("total_results", 0)
-            return f"ok  {n} result(s)"
-        return f"{r['status']}  {r['message']}"
-
+        return f"[TOOL] {name}  ok  {r.get('total_files', 0)} files, {r.get('total_matches', 0)} matches"
     if name == "bash":
-        if r["status"] == "ok":
-            cmd = r.get("command", "")
-            exit_code = r.get("exit_code")
-            elapsed = r.get("elapsed", 0)
-            if exit_code is None:
-                exit_str = "TIMEOUT"
-            else:
-                exit_str = f"exit={exit_code}"
-            cmd_display = cmd if len(cmd) <= 120 else cmd[:117] + "..."
-            return f"{exit_str}  {elapsed}s  {cmd_display}"
-        return f"{r['status']}  {r['message']}"
-
-    return msg.content[:80]
+        code = r.get("exit_code")
+        exit_str = "TIMEOUT" if code is None else f"exit={code}"
+        return f"[TOOL] {name}  {exit_str}  {r.get('elapsed', 0)}s  {str(r.get('command', ''))[:120]}"
+    if name == "web_search":
+        return f"[TOOL] {name}  ok  {r.get('total_results', 0)} result(s)"
+    if name in ("str_replace", "write_file"):
+        return f"[TOOL] {name}  {r.get('status')}  {r.get('message', '')}"
+    if name == "fetch_web":
+        return f"[TOOL] {name}  ok  {len(msg.content)} chars"
+    return f"[TOOL] {name}  {str(msg.content)[:80]}"
 
 
-def _fmt_fanout_tasks(tasks: list[dict] | None) -> str:
-    if not tasks:
-        return ""
-    lines = ["\n" + "=" * 60]
-    lines.append(f"  FANOUT — {len(tasks)} task(s) dispatched")
-    lines.append("=" * 60)
-    for t in tasks:
-        status_icon = "●" if t.get("task_completion_status") else "○"
-        lines.append(f"  {status_icon} [{t.get('task_id', '?')}] {t.get('task_name', '?')}")
-        lines.append(f"    agent:  {t.get('subagent_name', '?')} ({t.get('subagent_id', '?')})")
-        desc = t.get('task_description', '')
-        if desc:
-            lines.append(f"    desc:   {desc}")
-    lines.append("=" * 60)
-    return "\n".join(lines)
-
-
-def _fmt_plan(plan: list[dict] | None) -> str:
-    if not plan:
-        return ""
-    lines = ["\n" + "=" * 60]
-    lines.append(f"  PLAN ({len(plan)} phases)")
-    lines.append("=" * 60)
-    for p in plan:
-        status_icon = {"pending": "○", "in_progress": "◐", "done": "●"}.get(p.get("phase_status", ""), "○")
-        lines.append(f"  {status_icon} [{p.get('phase_id', '?')}] {p.get('phase_name', '?')}")
-        lines.append(f"    status: {p.get('phase_status', '?')}")
-        desc = p.get('phase_description', '')
-        if desc:
-            lines.append(f"    desc: {desc}")
-    lines.append("=" * 60)
-    return "\n".join(lines)
+def _handle_updates(data: dict, header_ref: list):
+    for node_name, output in data.items():
+        if node_name == "tools":
+            header_ref[0] = False
+            items = output if isinstance(output, list) else [output]
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                for msg in item.get("messages", []):
+                    if isinstance(msg, ToolMessage):
+                        print(_tool_summary(msg), flush=True)
+            continue
+        if node_name == "__error__":
+            print(f"\n[ERROR] {output}", flush=True)
+        elif node_name == "interrupt":
+            print("\n[INTERRUPT] PAUSED — waiting for human input", flush=True)
+        elif isinstance(output, dict) and output.get("error_message"):
+            print(f"\n[NODE ERROR] {node_name}: {output['error_message']}", flush=True)
 
 
 async def main():
     graph = build_graph()
-
     state = _safe_initial_state(
         user_query=TEST_QUERY,
         conversation_id="demo_001",
@@ -201,87 +164,38 @@ async def main():
 
     print(f"[USER] {state['user_query']}\n")
 
-    _header_printed = False
-    _first_tool_in_batch = False
-    _ended_properly = False
+    header = [False]
+    ended_properly = [False]
 
     async for mode, data in graph.astream(
         state, config=create_orchestration_config(), stream_mode=["updates", "messages"]
     ):
         if mode == "updates":
-            for node_name, output in data.items():
-                if node_name == "tools":
-                    if not isinstance(output, dict):
-                        # Command-based tools (edit_plan, delete_plan, etc.)
-                        # can produce state updates as lists (plan) instead of dicts.
-                        # Still need to show the result and reset header state.
-                        # print(f"  [DEBUG tools output type={type(output).__name__}] {str(output)[:200]}", flush=True)
-                        _header_printed = False
-                        continue
-                    for msg in output.get("messages", []):
-                        if isinstance(msg, ToolMessage):
-                            # print(f"  TOOL [DONE] {msg.name}  {_fmt_tool_result(msg)}", flush=True)
-                            if msg.name in ("make_plan", "edit_plan", "delete_plan"):
-                                try:
-                                    r = json.loads(msg.content)
-                                    if r.get("status") == "ok" and r.get("plan"):
-                                        print(_fmt_plan(r["plan"]), flush=True)
-                                except (json.JSONDecodeError, TypeError):
-                                    pass
-                        else:
-                            print(f"\n[DEBUG] unexpected msg type: {type(msg).__name__}, content: {str(getattr(msg, 'content', msg))[:200]}", flush=True)
-                    # Print fanout tasks if dispatched in this turn
-                    tasks = output.get("sub_agent_round_tasks", [])
-                    if tasks:
-                        print(_fmt_fanout_tasks(tasks), flush=True)
-                    _header_printed = False
+            _handle_updates(data, header)
+            continue
 
-                elif node_name == "__error__":
-                    print(f"\n[ERROR] {output}", flush=True)
-
-                elif node_name == "interrupt":
-                    print("\n[INTERRUPT] PAUSED — waiting for human input", flush=True)
-
-                else:
-                    if isinstance(output, dict) and output.get("error_message"):
-                        print(f"\n[NODE ERROR] {node_name}: {output['error_message']}", flush=True)
-
-        elif mode == "messages":
-            msg_chunk, _metadata = data
-
-            if isinstance(msg_chunk, AIMessageChunk):
-                if msg_chunk.tool_call_chunks:
-                    if not _header_printed:
-                        print(f"\n[ORCHESTRATOR] ", end="", flush=True)
-                        _header_printed = True
-                        _first_tool_in_batch = True
-                    for tc in msg_chunk.tool_call_chunks:
-                        if name := tc.get("name"):
-                            if name == "end_orchestration":
-                                _ended_properly = True
-                            # if _first_tool_in_batch:
-                            #     print(f"\n  TOOL [EXECUTING] {name}", flush=True)
-                            #     _first_tool_in_batch = False
-                            # else:
-                            #     print(f"  TOOL [EXECUTING] {name}", flush=True)
-                    continue
-
-                content = msg_chunk.content
-                if isinstance(content, str) and content:
-                    if not _header_printed:
-                        print(f"\n[ORCHESTRATOR] ", end="", flush=True)
-                        _header_printed = True
-                    print(content, end="", flush=True)
-
-                if not content and not msg_chunk.tool_call_chunks:
-                    if _header_printed:
-                        print(flush=True)
-                    _header_printed = False
+        chunk, _metadata = data
+        if not isinstance(chunk, AIMessageChunk):
+            continue
+        if chunk.tool_call_chunks:
+            for tc in chunk.tool_call_chunks:
+                if tc.get("name") == "end_orchestration":
+                    ended_properly[0] = True
+            continue
+        content = chunk.content
+        if isinstance(content, str) and content:
+            if not header[0]:
+                print("\n[ORCHESTRATOR] ", end="", flush=True)
+                header[0] = True
+            print(content, end="", flush=True)
+        elif not content and header[0]:
+            print(flush=True)
+            header[0] = False
 
     await close_crawler()
-    if not _ended_properly:
-        print(f"\n\n⚠️  Orchestrator did not call end_orchestration. Graph ended via fallback.")
-    print(f"\n[DONE]")
+    if not ended_properly[0]:
+        print("\n\n⚠️  Orchestrator did not call end_orchestration. Graph ended via fallback.")
+    print("\n[DONE]")
 
 
 if __name__ == "__main__":

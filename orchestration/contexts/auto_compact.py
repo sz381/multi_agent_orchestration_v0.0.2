@@ -40,7 +40,7 @@ from utils.settings import settings
 logger = get_logger(__name__)
 
 MAX_FAILURES_BEFORE_OPEN = 3                        # 熔断阈值：连续失败 3 次
-DEFAULT_KEEP_RECENT = 8                             # 尾部保留窗口：最近 N 条消息永不压缩
+DEFAULT_KEEP_RECENT = 6                             # 尾部保留窗口：最近 N 条消息永不压缩（8→6, 扩大T2可压窗口）
 DEFAULT_MIN_MESSAGES = 6                            # 待压缩消息少于该值时不调用模型（防微压缩）
 DEFAULT_SUMMARY_MAX_TOKENS = 512                    # 摘要模型输出上限
 CONTENT_PREVIEW_LEN = 400                           # 摘要 prompt 中单条消息内容预览长度
@@ -52,7 +52,7 @@ CONTENT_PREVIEW_LEN = 400                           # 摘要 prompt 中单条消
 # 从最近组到最旧组整组保护，累计不超过 MAX_PROTECTED_CONTENT_TOKENS；
 # 超限的最旧组允许压缩，防止代码累积后 T2 永远无物可压。
 PROTECTED_CONTENT_TOOLS = frozenset({"view_file"})
-MAX_PROTECTED_CONTENT_TOKENS = 60_000               # 保护容量上限（与 orchestrator 预算对齐）
+MAX_PROTECTED_CONTENT_TOKENS = 20_000               # 保护容量上限（60K→20K：原上限高于sub-agent 40K预算致T2永不触发, 8_03_002验证）
 
 
 @dataclass
@@ -146,6 +146,56 @@ def _build_summary_prompt(existing_summary: str, messages_to_compress: list) -> 
         f"## Conversation History\n{history}\n\n"
         f"Create a summary capturing key information. Keep under 300 words."
     )
+
+
+def _tc_id_of(tc) -> str:
+    """Extract the id from a tool_call (dict or structured)."""
+    return tc.get("id", "") if isinstance(tc, dict) else getattr(tc, "id", "")
+
+
+def _enforce_pair_integrity(middle: list, keep_ids: set, messages: list) -> list:
+    """Converge the window to full AI⇄Tool pairing (same-birth-same-death).
+
+    Only delete messages whose pairing is complete *inside* ``middle``:
+
+    - An AIMessage whose tool_call has no ToolMessage in ``middle`` (it lives
+      in the head/tail protection or was already kept) must be kept, otherwise
+      its ToolMessage becomes an orphan.
+    - A ToolMessage whose pairing AIMessage is not in ``middle`` must be kept,
+      otherwise it becomes an orphan ToolMessage (the 8_03_004 API 400 crash).
+
+    Iterates to a fixed point: keeping one side may orphan the other side, so
+    re-scan until nothing changes. Termination is guaranteed because each pass
+    either keeps at least one message (shrinking ``middle``) or stops.
+    """
+    while True:
+        changed = False
+        ai_by_tc: dict[str, str] = {}
+        for m in middle:
+            if m.type == "ai" and m.tool_calls:
+                for tc in m.tool_calls:
+                    tc_id = _tc_id_of(tc)
+                    if tc_id:
+                        ai_by_tc[tc_id] = m.id
+        tool_tc_ids = {m.tool_call_id for m in middle if m.type == "tool"}
+        for m in middle:
+            if m.type == "ai" and m.tool_calls:
+                if any(
+                    tc_id and tc_id not in tool_tc_ids
+                    for tc in m.tool_calls
+                    if (tc_id := _tc_id_of(tc))
+                ):
+                    keep_ids.add(m.id)
+                    changed = True
+            elif m.type == "tool" and m.tool_call_id not in ai_by_tc:
+                keep_ids.add(m.id)
+                changed = True
+        if not changed:
+            break
+        middle = [m for m in middle if m.id not in keep_ids]
+        if not middle:
+            break
+    return middle
 
 
 def _select_compression_window(
@@ -296,6 +346,14 @@ def _select_compression_window(
         }
 
     middle = [m for m in middle if m.id not in keep_ids]
+
+    # ── 配对完整性收敛：删除区间两侧 AI⇄Tool 必须同生同灭 ──
+    # 覆盖窗口左缘（游标/head 切断配对）、右缘（anchor 拉入 AI 后其
+    # 其余 ToolMessage 仍在窗口内）、多 tool_calls 部分配对等场景；
+    # 边缘不完整 → 整组保留（收缩窗口），直到不动点（见 8_03_004 崩溃）。
+    middle = _enforce_pair_integrity(middle, keep_ids, messages)
+    if not middle:
+        return [], None
     return middle, anchor.id
 
 
