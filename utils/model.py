@@ -116,6 +116,89 @@ async def ainvoke_with_retry(
     raise last_exc
 
 
+def _is_empty_response(msg: Any) -> bool:
+    """Return True when ``msg`` carries neither tool calls nor text content.
+
+    An "empty response" means the LLM call succeeded but produced nothing
+    usable: no tool calls AND no content (None / blank string / blank
+    content blocks). This is a response-level anomaly — distinct from
+    network errors — and typically correlates with long-context pressure
+    (8_03_011: orchestrator returned an empty response and the graph ended
+    via fallback without calling end_orchestration).
+    """
+    if getattr(msg, "tool_calls", None):
+        return False
+    content = getattr(msg, "content", None)
+    if content is None:
+        return True
+    if isinstance(content, str):
+        return not content.strip()
+    if isinstance(content, list):
+        # Content-blocks form: [{"type": "text", "text": "..."}].
+        # A non-dict block is unexpected → treat as non-empty (conservative).
+        for block in content:
+            if not isinstance(block, dict):
+                return False
+            text = block.get("text") or ""
+            if str(text).strip():
+                return False
+        return True
+    return not str(content).strip()
+
+
+async def ainvoke_with_content_guard(
+    runnable: Any,
+    *args: Any,
+    max_retries: int = _MAX_RETRIES,
+    base_delay: float = _BASE_DELAY,
+    allow_empty: bool = False,
+    role: str = "agent",
+    **kwargs: Any,
+) -> Any:
+    """Invoke with network retry, then guard against empty responses.
+
+    Layer 1 — ``ainvoke_with_retry``: retries transient network errors
+    (SSL, connection, timeout, rate-limit). Layer 2 — empty-response guard:
+    if the model returns successfully but with no tool calls and no content,
+    re-send the SAME request once (no backoff — the input is unchanged). A
+    second empty response is returned as-is so the caller's existing
+    fallback logic still runs (no exception raised).
+
+    Args:
+        runnable:  Any object with an ``ainvoke`` method (ChatOpenAI, etc.).
+        *args:     Positional args forwarded to ``ainvoke``.
+        max_retries: Network retry attempts (forwarded, default 3).
+        base_delay:  Initial backoff delay in seconds (forwarded, default 1.0).
+        allow_empty: When True, empty responses are returned without retry.
+        role:       Log label for the calling role (orchestrator / sub_agent / ...).
+        **kwargs:  Keyword args forwarded to ``ainvoke``.
+
+    Returns:
+        The first non-empty result, or the (empty) result when both attempts
+        are empty / ``allow_empty`` is True.
+    """
+    response = await ainvoke_with_retry(
+        runnable, *args, max_retries=max_retries, base_delay=base_delay, **kwargs
+    )
+    if not _is_empty_response(response) or allow_empty:
+        return response
+    logger.warning(
+        "llm_empty_response_retry",
+        role=role,
+        attempt=1,
+    )
+    response = await ainvoke_with_retry(
+        runnable, *args, max_retries=max_retries, base_delay=base_delay, **kwargs
+    )
+    if _is_empty_response(response):
+        logger.warning(
+            "llm_empty_response",
+            role=role,
+            attempt=2,
+        )
+    return response
+
+
 def count_tokens(messages: list) -> dict[str, int]:
     """Aggregate token usage across all AI-generated messages.
 

@@ -14,7 +14,7 @@ from orchestration.contexts.pipeline import (
     ORCHESTRATOR_BUDGET,
     ORCHESTRATOR_SUMMARY_OUTPUT_BUDGET,
 )
-from utils.model import init_model, ainvoke_with_retry
+from utils.model import init_model, ainvoke_with_content_guard
 from utils.settings import settings
 from utils.logging import get_logger
 
@@ -176,11 +176,21 @@ def make_orchestrator_node():
         
         # Invoke the LLM with the system prompt and message history
         try:
-            response = await ainvoke_with_retry(model, messages, config=config)
+            response = await ainvoke_with_content_guard(
+                model, messages, config=config, role="orchestrator"
+            )
             removals = pipeline_result.removals if pipeline_result else []
+            replacements = pipeline_result.replacements if pipeline_result else []
             checkpoint = pipeline_result.checkpoint if pipeline_result else state.get("compaction_checkpoint")
+            if removals or replacements:
+                # 观测日志：确认 T2 的删除/替换真实写回 state（add_messages 生效）。
+                logger.info(
+                    "orchestrator_state_writeback",
+                    removals=len(removals),
+                    replacements=len(replacements),
+                )
             return {
-                "messages": [response] + removals,
+                "messages": [response] + removals + replacements,
                 "compaction_checkpoint": checkpoint,
                 "orchestration_iteration": state["orchestration_iteration"] + 1,
             }

@@ -26,9 +26,11 @@ are out of scope here; they belong to the pre-request hook (Phase 2
 ``context_pipeline``). This module only performs the "compaction action" itself.
 """
 
-from dataclasses import dataclass
+import json
+import os
+from dataclasses import dataclass, field
 
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langchain_core.messages.utils import count_tokens_approximately
 from langgraph.graph.message import RemoveMessage
 
@@ -47,12 +49,22 @@ CONTENT_PREVIEW_LEN = 400                           # 摘要 prompt 中单条消
 
 # 代码内容保护：view_file 输出是模型修改代码的依据（不可重建资产）。
 # T2 无差别压缩会让模型只凭摘要猜 old_str（str_replace Text not found）
-# → 反复重读 → 上下文雪崩（见 8_02_003）。保护单位是“配对组”：
+# → 反复重读 → 上下文雪崩（见 8_02_003）。保护单位是"配对组"：
 # 1 个 AIMessage + 其全部 tool_calls 的 ToolMessage（API 要求配对完整）。
 # 从最近组到最旧组整组保护，累计不超过 MAX_PROTECTED_CONTENT_TOKENS；
 # 超限的最旧组允许压缩，防止代码累积后 T2 永远无物可压。
+#
+# v2 语义（8_03_011 讨论落地）：同一文件多次 view_file 时，只有"最新一次
+# 视图"所在组是模型修改代码的依据——历史视图组若整组不含任何最新视图则
+# 解除保护进入 T2 压缩窗口；被保护组内"非最新 path"的 ToolMessage 保留
+# 配对结构，content 替换为 STALE 占位符（token 大降且提示模型勿重读）。
 PROTECTED_CONTENT_TOOLS = frozenset({"view_file"})
 MAX_PROTECTED_CONTENT_TOKENS = 20_000               # 保护容量上限（60K→20K：原上限高于sub-agent 40K预算致T2永不触发, 8_03_002验证）
+STALE_PLACEHOLDER_PREFIX = "[stale content removed:"  # 占位符前缀：已替换消息不再参与保护判定
+STALE_PLACEHOLDER_TEMPLATE = (
+    "[stale content removed: {path} has a newer view_file result later in the "
+    "conversation; refer to the most recent view. Do NOT re-read this file.]"
+)
 
 
 @dataclass
@@ -83,6 +95,10 @@ class CompactionResult:
 
     Attributes:
         removals:          Original messages to remove (list of RemoveMessage, handed to state).
+        replacements:      Same-id ToolMessage copies whose content is replaced by a
+                           stale placeholder (protected groups holding non-latest
+                           views); LangGraph's add_messages replaces the originals
+                           in state when merged together with the removals.
         summary:           New summary after compaction (new value on success, old value on failure).
         checkpoint:        Updated checkpoint (caller should write it back to state).
         compressed_count:  Number of messages actually compacted this run.
@@ -94,6 +110,7 @@ class CompactionResult:
     checkpoint: CompactionCheckpoint
     compressed_count: int = 0
     tokens_freed: int = 0
+    replacements: list = field(default_factory=list)
 
 
 class CircuitBreaker:
@@ -153,6 +170,29 @@ def _tc_id_of(tc) -> str:
     return tc.get("id", "") if isinstance(tc, dict) else getattr(tc, "id", "")
 
 
+def _file_path_of(tc) -> str | None:
+    """Extract the normalized file path from a tool_call's args.
+
+    Compatible with dict/structured tool_calls and with ``args`` being a dict
+    or a JSON string. Returns None when the path cannot be resolved (callers
+    fall back to conservative whole-group protection).
+    """
+    args = tc.get("args") if isinstance(tc, dict) else getattr(tc, "args", None)
+    if not args:
+        return None
+    if isinstance(args, str):
+        try:
+            args = json.loads(args)
+        except (TypeError, ValueError):
+            return None
+    if not isinstance(args, dict):
+        return None
+    path = args.get("file_path") or args.get("path")
+    if not path or not isinstance(path, str):
+        return None
+    return os.path.normpath(path.strip())
+
+
 def _enforce_pair_integrity(middle: list, keep_ids: set, messages: list) -> list:
     """Converge the window to full AI⇄Tool pairing (same-birth-same-death).
 
@@ -202,8 +242,8 @@ def _select_compression_window(
     messages: list,
     checkpoint: CompactionCheckpoint | None,
     keep_recent: int,
-) -> tuple[list, str | None]:
-    """Select the compression window; returns (middle, anchor_id).
+) -> tuple[list, str | None, list]:
+    """Select the compression window; returns (middle, anchor_id, replacements).
 
     Rules:
     - Head protection: all SystemMessages + the first HumanMessage are never compacted.
@@ -220,15 +260,18 @@ def _select_compression_window(
                      compacted.
 
     Returns:
-        ``(middle, anchor_id)``:
+        ``(middle, anchor_id, replacements)``:
 
         - Non-empty ``middle``: messages to compact (protected messages already
           excluded); ``anchor_id`` is the id of the last message in ``middle`` —
           it stays in history as the next compaction cursor, and its AI↔Tool
           paired messages are kept as well.
-        - ``([], None)``: nothing to compact — the window is empty (cursor has
-          passed the tail window) or every message in the window is protected
-          (pair protection / protected content).
+        - ``replacements``: same-id ToolMessage copies whose content is replaced
+          by a stale placeholder (protected groups whose file path is no longer
+          the newest view); empty when no stale views exist.
+        - ``([], None, [])``: nothing to compact — the window is empty (cursor
+          has passed the tail window) or every message in the window is
+          protected (pair protection / protected content).
     """
     # ── 头部 / 尾部保留边界 ─────────────────────────────
     protected_idx = {i for i, m in enumerate(messages) if isinstance(m, SystemMessage)}
@@ -251,7 +294,7 @@ def _select_compression_window(
         # 锚点消息不存在（被外部清掉）→ 从 head 重新开始，可接受。
 
     if start >= recent_start:
-        return [], None
+        return [], None, []
 
     window = messages[start:recent_start]
 
@@ -276,33 +319,82 @@ def _select_compression_window(
     if keep_tool_call_ids:
         keep_ids |= {m.id for m in messages if m.type == "tool" and m.tool_call_id in keep_tool_call_ids}
 
-    # ── 代码内容保护（按配对组，从最近到最早整组保护）──────────
+    # ── 代码内容保护 v2（按配对组，从最近到最早整组保护）────────
     # 并发读 N 个文件 = 1 个 AIMessage + N 个 ToolMessage 的配对组；
     # 压缩掉代码后模型失去修改依据 → str_replace 失败 → 重读循环。
     # 以组为单位保证配对完整性（API 要求 AI 每个 tool_call 都有 ToolMessage）。
+    #
+    # v2 决策（8_03_011）：
+    # - path 最新视图映射：同一文件多次 view_file，仅"最新一次视图"所在组是
+    #   修改依据；不含任何最新视图的整组 → 解除保护进 T2 压缩窗口（v1）。
+    # - stale 替换：被保护组内非最新 path 的 ToolMessage 保留配对结构，
+    #   content 替换为 STALE 占位符（token 大降且提示模型勿重读）（v2）。
+    # - 兼容回退：file_path 解析不出 → 保守整组保护（绝不误解绑）。
     window_tool_msgs = [
         m for m in window
         if m.type == "tool" and (m.name or "") in PROTECTED_CONTENT_TOOLS
         and str(m.content) != "[content cleared]"
+        and not str(m.content).startswith(STALE_PLACEHOLDER_PREFIX)
     ]
     protected_ids: set[str] = set()
+    replacements: list[ToolMessage] = []
     if window_tool_msgs:
-        # 每个 view_file ToolMessage 向前配对到其所属 AIMessage，按 AI 分组。
-        groups: dict[str, list] = {}  # ai_id -> [该 AI 的全部 window 内消息]
+        # 全量扫描（含 head/tail 保护区）：tool_call_id → ai_id / 规范化 file_path。
+        # 必须全量——tail 窗口内的"最新视图"也要能解除 window 内同 path 的保护。
         ai_by_tc: dict[str, str] = {}  # tool_call_id -> ai_id
-        for m in window:
+        tc_path: dict[str, str] = {}  # tool_call_id -> 规范化 file_path
+        for m in messages:
             if m.type == "ai" and m.tool_calls:
-                # 注意：append 必须在 tc 循环外——同一 AI 有多个 tool_calls 时
-                # 只入组一次，否则组内重复 AI 会让 cost 被夸大（如 14 并发读
-                # 组重复 14 次 → 误超 60k 上限 → 保护失效，见 8_02_003 复现测试）。
-                groups.setdefault(m.id, []).append(m)
                 for tc in m.tool_calls:
-                    tc_id = tc.get("id", "") if isinstance(tc, dict) else getattr(tc, "id", "")
+                    tc_id = _tc_id_of(tc)
                     if tc_id:
                         ai_by_tc[tc_id] = m.id
+                        path = _file_path_of(tc)
+                        if path:
+                            tc_path[tc_id] = path
+
+        # window 内按 AI 分组（保护决策只作用于 window；tail 组天然在 keep_ids）。
+        # 注意：append 必须在 tc 循环外——同一 AI 有多个 tool_calls 时只入组一次，
+        # 否则组内重复 AI 会让 cost 被夸大（如 14 并发读组重复 14 次 → 误超 60k
+        # 上限 → 保护失效，见 8_02_003 复现测试）。
+        groups: dict[str, list] = {}  # ai_id -> [该 AI 的全部 window 内消息]
+        for m in window:
+            if m.type == "ai" and m.tool_calls:
+                groups.setdefault(m.id, []).append(m)
         for m in window:
             if m.type == "tool" and m.tool_call_id in ai_by_tc:
                 groups.setdefault(ai_by_tc[m.tool_call_id], []).append(m)
+
+        # path → 最新视图所在组（全消息范围，后出现者覆盖）。
+        # content 已被清空/替换的消息无内容可保护，不算最新视图。
+        path_latest_group: dict[str, str] = {}
+        for m in messages:
+            if m.type == "tool" and (m.name or "") in PROTECTED_CONTENT_TOOLS:
+                content = str(m.content)
+                if content == "[content cleared]" or content.startswith(STALE_PLACEHOLDER_PREFIX):
+                    continue
+                p = tc_path.get(m.tool_call_id)
+                if p:
+                    path_latest_group[p] = ai_by_tc.get(m.tool_call_id, "")
+
+        # 观测日志：窗口内 view path 解析率——全部解析失败说明模型未传
+        # file_path，v2 静默回退为整组保护（防止误以为去重在生效）。
+        window_view_count = len(window_tool_msgs)
+        window_path_known = sum(1 for m in window_tool_msgs if m.tool_call_id in tc_path)
+        if window_path_known == 0:
+            logger.warning(
+                "auto_compact_view_fallback",
+                view_count=window_view_count,
+                path_known=0,
+                reason="all_paths_unresolved",
+            )
+        elif window_path_known < window_view_count:
+            logger.warning(
+                "auto_compact_view_fallback",
+                view_count=window_view_count,
+                path_known=window_path_known,
+                reason="partial_paths_unresolved",
+            )
 
         # 从最近到最早，按组累计 token，不超过保护上限。
         # 只保护包含 view_file 输出的组；纯 bash/grep 组不保护。
@@ -310,21 +402,73 @@ def _select_compression_window(
         budget_left = MAX_PROTECTED_CONTENT_TOKENS
         for ai_id in reversed(groups):
             group_msgs = groups[ai_id]
-            if not any(m.type == "tool" and m.tool_call_id in view_tc_ids
-                       for m in group_msgs):
+            view_tools = [
+                m for m in group_msgs
+                if m.type == "tool" and m.tool_call_id in view_tc_ids
+            ]
+            if not view_tools:
+                continue
+            # v1 解绑判定：组内含任一 path 的最新视图 → 保护；
+            # path 全部解析失败 → 保守保护；否则整组解绑进 T2 窗口。
+            path_known = [m for m in view_tools if m.tool_call_id in tc_path]
+            group_paths = [tc_path[m.tool_call_id] for m in path_known]
+            unresolved = len(view_tools) - len(path_known)
+            has_latest = True if not path_known else any(
+                path_latest_group.get(tc_path[m.tool_call_id]) == ai_id
+                for m in path_known
+            )
+            if not has_latest:
+                # 观测日志：整组不含任何最新视图 → 解除保护进 T2 窗口（v1 解绑）。
+                logger.info(
+                    "auto_compact_view_decision",
+                    group_id=ai_id,
+                    paths=group_paths,
+                    decision="release",
+                    reason="no_latest_view",
+                    path_unresolved=unresolved,
+                )
                 continue
             cost = sum(count_tokens_approximately([m]) for m in group_msgs)
             if cost > budget_left:
+                logger.info(
+                    "auto_compact_view_decision",
+                    group_id=ai_id,
+                    paths=group_paths,
+                    decision="skip",
+                    reason="budget_exhausted",
+                    path_unresolved=unresolved,
+                )
                 break
             protected_ids |= {m.id for m in group_msgs}
             budget_left -= cost
+            # v2 stale 替换：组已确认保护，组内非最新 path 的 ToolMessage
+            # 换为占位符（配对结构不变，id 不变，仅 content 替换）。
+            stale_paths: list[str] = []
+            for m in path_known:
+                p = tc_path[m.tool_call_id]
+                if path_latest_group.get(p) != ai_id:
+                    replacements.append(
+                        m.model_copy(
+                            update={"content": STALE_PLACEHOLDER_TEMPLATE.format(path=p)}
+                        )
+                    )
+                    stale_paths.append(p)
+            logger.info(
+                "auto_compact_view_decision",
+                group_id=ai_id,
+                paths=group_paths,
+                decision="protect",
+                stale_paths=stale_paths,
+                path_unresolved=unresolved,
+            )
 
     if protected_ids:
         keep_ids |= protected_ids
 
     middle = [m for m in window if m.id is not None and m.id not in keep_ids]
     if not middle:
-        return [], None
+        # 窗口全保护但可能已产生 stale 替换 → 单独带出（无损，无需摘要调用）。
+        return [], None, replacements
 
     # ── 锚点保护：middle[-1] 保留作游标锚点，且配对消息也保留 ──
     anchor = middle[-1]
@@ -353,8 +497,9 @@ def _select_compression_window(
     # 边缘不完整 → 整组保留（收缩窗口），直到不动点（见 8_03_004 崩溃）。
     middle = _enforce_pair_integrity(middle, keep_ids, messages)
     if not middle:
-        return [], None
-    return middle, anchor.id
+        # 配对收敛后无可压消息 → 同样带出已生成的 stale 替换。
+        return [], None, replacements
+    return middle, anchor.id, replacements
 
 
 async def incremental_compact(
@@ -407,8 +552,23 @@ async def incremental_compact(
         logger.warning("auto_compact_skip", reason="compaction already in progress")
         return None
 
-    middle, anchor_id = _select_compression_window(messages, cp, keep_recent)
+    middle, anchor_id, replacements = _select_compression_window(messages, cp, keep_recent)
     if not middle:
+        # 窗口无可压消息，但产生了 stale 替换 → 单独产出替换（无损操作，无需
+        # 摘要调用；替换后保护预算释放，下轮可保护更多组）。
+        if replacements:
+            logger.info(
+                "auto_compact_stale_only",
+                stale_count=len(replacements),
+            )
+            return CompactionResult(
+                removals=[],
+                replacements=replacements,
+                summary=cp.summary,
+                checkpoint=cp,
+                compressed_count=0,
+                tokens_freed=0,
+            )
         return None
     if len(middle) < min_messages:
         return None
@@ -457,9 +617,11 @@ async def incremental_compact(
         tokens_freed=tokens_freed,
         summary_length=len(new_summary),
         anchor_id=anchor_id,
+        stale_count=len(replacements),
     )
     return CompactionResult(
         removals=[RemoveMessage(id=m.id) for m in middle],
+        replacements=replacements,
         summary=new_summary,
         checkpoint=CompactionCheckpoint(
             last_compacted_id=anchor_id,

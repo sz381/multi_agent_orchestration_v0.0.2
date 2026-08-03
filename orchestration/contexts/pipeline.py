@@ -29,7 +29,7 @@ Invariants:
   the orchestration main flow.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
 from langchain_core.messages import SystemMessage
@@ -45,7 +45,6 @@ from utils.logging import get_logger
 
 logger = get_logger(__name__)
 
-# ── 预算常量（README 预算分配表）─────────────────────────────────────
 ORCHESTRATOR_BUDGET = 42_000              # orchestrator 上下文总预算（8_03_002: 28轮从未触发T2, 由60K下调激活压缩）
 ORCHESTRATOR_SUMMARY_OUTPUT_BUDGET = 2_000  # MAX_SUMMARY_OUTPUT（预算预留）
 SUB_AGENT_BUDGET = 27_000                 # sub-agent 上下文总预算（8_03_003: T1把水位压到~20K<25.5K阈值致T2全程0触发, 由40K下调使峰值轮触发LLM摘要）
@@ -77,6 +76,9 @@ class PipelineResult:
         messages_for_llm:    Processed copy sent to the LLM (after T0/T1/T2).
         checkpoint:          New checkpoint after T2 compaction; unchanged if not triggered.
         removals:            RemoveMessages produced by T2 (the node should merge them into the state update).
+        replacements:        Same-id ToolMessage copies with stale placeholders produced by T2
+                             (the node should merge them into the state update; LangGraph's
+                             add_messages replaces the originals).
         tokens_before:       Estimated tokens after summary injection, before cleanup.
         tokens_after:        Estimated tokens of the processed copy to send.
         threshold:           Budget threshold for this round; None means T2 disabled.
@@ -88,6 +90,7 @@ class PipelineResult:
     messages_for_llm: list
     checkpoint: CompactionCheckpoint | None
     removals: list[RemoveMessage]
+    replacements: list = field(default_factory=list)
     tokens_before: int = 0
     tokens_after: int = 0
     threshold: int | None = None
@@ -287,7 +290,14 @@ async def run_pre_request_pipeline(
             new_checkpoint = comp.checkpoint
             compact_triggered = True
 
+        # T2 替换：同 id 的新 ToolMessage（stale 占位符）覆盖副本中的旧消息。
+        # 与 removals 互不重叠：被删消息不会再被替换（解绑组 vs 保护组）。
+        if comp and comp.replacements:
+            repl_by_id = {r.id: r for r in comp.replacements}
+            msgs = [repl_by_id.get(m.id, m) for m in msgs]
+
     tokens_after = count_tokens_approximately(msgs)
+    stale_count = len(comp.replacements) if (comp and comp.replacements) else 0
 
     logger.info(
         "context_pipeline",
@@ -298,12 +308,14 @@ async def run_pre_request_pipeline(
         snip=snip_count,
         microcompact=micro_count,
         auto_compact=compact_triggered,
+        stale=stale_count,
     )
 
     return PipelineResult(
         messages_for_llm=msgs,
         checkpoint=new_checkpoint,
         removals=list(comp.removals) if (comp and comp.removals) else [],
+        replacements=list(comp.replacements) if (comp and comp.replacements) else [],
         tokens_before=tokens_before,
         tokens_after=tokens_after,
         threshold=threshold,

@@ -26,11 +26,11 @@ def hum(content="user query"):
     return HumanMessage(content=content, id=_new_id("h"))
 
 
-def ai(content="", tc_names=()):
-    tool_calls = [
-        {"name": n, "args": {}, "id": f"tc-{n}", "type": "tool_call"}
-        for n in tc_names
-    ]
+def ai(content="", tc_names=(), paths=None):
+    tool_calls = []
+    for i, n in enumerate(tc_names):
+        args = {"file_path": paths[i]} if paths and i < len(paths) else {}
+        tool_calls.append({"name": n, "args": args, "id": f"tc-{n}", "type": "tool_call"})
     return AIMessage(content=content, tool_calls=tool_calls, id=_new_id("a"))
 
 
@@ -64,9 +64,15 @@ def _remaining_after(messages, middle):
     return [m for m in messages if m.id not in drop]
 
 
+def _apply_replacements(messages, replacements):
+    """Apply same-id replacements (stale placeholder copies) to a message list."""
+    repl_by_id = {r.id: r for r in replacements}
+    return [repl_by_id.get(m.id, m) for m in messages]
+
+
 def _select_and_check(messages, checkpoint=None, keep_recent=6):
-    middle, anchor = _select_compression_window(messages, checkpoint, keep_recent)
-    remaining = _remaining_after(messages, middle)
+    middle, anchor, replacements = _select_compression_window(messages, checkpoint, keep_recent)
+    remaining = _apply_replacements(_remaining_after(messages, middle), replacements)
     assert_pair_integrity(remaining)
     return middle, anchor, remaining
 
@@ -387,6 +393,154 @@ class TestViewFileGroupProtection:
         assert_pair_integrity(remaining)
 
 
+class TestViewFilePathDedup:
+    """v2 路径去重 + stale 替换（8_03_011）：同一文件多次 view_file 只保护最新视图组。"""
+
+    @staticmethod
+    def _select_v2(messages, keep_recent=1):
+        """窗口选择 + 应用替换后验配对，返回 (middle, anchor, replacements, remaining)。"""
+        middle, anchor, replacements = _select_compression_window(messages, None, keep_recent)
+        remaining = _apply_replacements(_remaining_after(messages, middle), replacements)
+        assert_pair_integrity(remaining)
+        return middle, anchor, replacements, remaining
+
+    def test_same_path_only_latest_group_protected(self):
+        # 场景 A：4 组纯 hello.py → 前 3 组解绑进 T2 窗口，最新组保护，无 stale。
+        msgs = [
+            sysm(), hum(),
+            ai("r1", ("v1",), ("/a/hello.py",)), view_tm("tc-v1"),
+            ai("r2", ("v2",), ("/a/hello.py",)), view_tm("tc-v2"),
+            ai("r3", ("v3",), ("/a/hello.py",)), view_tm("tc-v3"),
+            ai("r4", ("v4",), ("/a/hello.py",)), view_tm("tc-v4"),
+            ai("tail"),
+        ]
+        middle, anchor, replacements, remaining = self._select_v2(msgs)
+        m_ids = {m.id for m in middle}
+        assert msgs[2].id in m_ids and msgs[3].id in m_ids   # r1/v1 解绑
+        assert msgs[8].id not in m_ids and msgs[9].id not in m_ids  # r4/v4 最新保护
+        assert replacements == []
+
+    def test_mixed_group_old_path_stale_replaced(self):
+        # 场景 B：纯旧组解绑；混合组保护但组内旧 path → stale 替换；最新 path 完整保留。
+        msgs = [
+            sysm(), hum(),
+            ai("r1", ("v1",), ("/a/hello.py",)), view_tm("tc-v1"),
+            ai("r2", ("v2", "v3", "v4"), ("/a/hello.py", "/a/asdf.py", "/a/zxcv.py")),
+            view_tm("tc-v2"), view_tm("tc-v3"), view_tm("tc-v4"),
+            ai("r3", ("v5", "v6"), ("/a/hello.py", "/a/zzzzz.py")),
+            view_tm("tc-v5"), view_tm("tc-v6"),
+            ai("r4", ("v7",), ("/a/hello.py",)), view_tm("tc-v7"),
+            ai("r5", ("v8",), ("/a/hello.py",)), view_tm("tc-v8"),
+            ai("tail"),
+        ]
+        middle, anchor, replacements, remaining = self._select_v2(msgs)
+        m_ids = {m.id for m in middle}
+        # 纯旧组 r1 解绑（r4 同为解绑组但作为锚点保留，下一轮从 v7 续压）
+        assert msgs[2].id in m_ids and msgs[3].id in m_ids
+        # 最新组 r5 保护
+        assert msgs[13].id not in m_ids and msgs[14].id not in m_ids
+        # stale：v2(hello 旧) 与 v5(hello 旧)；v3/v4/v6/v8 是各文件最新 → 不动
+        repl = {r.id: r for r in replacements}
+        assert len(replacements) == 2
+        assert repl[msgs[5].id].content.startswith("[stale content removed:")
+        assert repl[msgs[9].id].content.startswith("[stale content removed:")
+        assert "/a/hello.py" in repl[msgs[5].id].content
+        assert msgs[6].id not in repl and msgs[7].id not in repl
+        assert msgs[10].id not in repl and msgs[14].id not in repl
+
+    def test_interleaved_groups_release_and_stale(self):
+        # 场景 C：穿插 —— 纯 hello 组解绑，混合组 stale 掉 hello 旧视图。
+        msgs = [
+            sysm(), hum(),
+            ai("r1", ("v1", "v2", "v3"), ("/a/hello.py", "/a/asdf.py", "/a/zxcv.py")),
+            view_tm("tc-v1"), view_tm("tc-v2"), view_tm("tc-v3"),
+            ai("r2", ("v4",), ("/a/hello.py",)), view_tm("tc-v4"),
+            ai("r3", ("v5", "v6"), ("/a/hello.py", "/a/zzzzz.py")),
+            view_tm("tc-v5"), view_tm("tc-v6"),
+            ai("r4", ("v7",), ("/a/hello.py",)), view_tm("tc-v7"),
+            ai("r5", ("v8",), ("/a/hello.py",)), view_tm("tc-v8"),
+            ai("tail"),
+        ]
+        middle, anchor, replacements, remaining = self._select_v2(msgs)
+        m_ids = {m.id for m in middle}
+        # 纯 hello 旧组 r2 解绑（r4 同为解绑组但作为锚点保留，下一轮从 v7 续压）
+        assert msgs[6].id in m_ids and msgs[7].id in m_ids
+        # 最新组 r5 保护
+        assert msgs[13].id not in m_ids and msgs[14].id not in m_ids
+        # stale：r1 组 hello(v1)、r3 组 hello(v5)；asdf/zxcv/zzzzz/最新 hello 不动
+        repl = {r.id: r for r in replacements}
+        assert len(replacements) == 2
+        assert repl[msgs[3].id].content.startswith("[stale content removed:")
+        assert repl[msgs[9].id].content.startswith("[stale content removed:")
+        assert msgs[4].id not in repl and msgs[5].id not in repl
+        assert msgs[10].id not in repl and msgs[14].id not in repl
+
+    def test_tail_newest_view_unprotects_window_groups(self):
+        # 最新视图落在尾部保护窗口 → window 内同 path 组全部解绑。
+        msgs = [
+            sysm(), hum(),
+            ai("r1", ("v1",), ("/a/hello.py",)), view_tm("tc-v1"),
+            ai("r2", ("v2",), ("/a/hello.py",)), view_tm("tc-v2"),
+            ai("r3", ("v3",), ("/a/hello.py",)), view_tm("tc-v3"),
+            ai("tail"),
+        ]
+        middle, anchor, replacements, remaining = self._select_v2(msgs, keep_recent=2)
+        m_ids = {m.id for m in middle}
+        # r3 的 v3 在 tail（最新视图）→ r1 解绑、r3 保护
+        assert msgs[2].id in m_ids and msgs[3].id in m_ids
+        assert msgs[6].id not in m_ids
+        assert replacements == []
+
+    def test_cleared_view_not_latest_candidate(self):
+        # 最新一次视图 content 已被 T0/T1 清空 → 不算最新视图 → 前一次正常视图生效。
+        msgs = [
+            sysm(), hum(),
+            ai("r1", ("v1",), ("/a/hello.py",)), view_tm("tc-v1"),
+            ai("r2", ("v2",), ("/a/hello.py",)),
+            tm(content="[content cleared]", tc="tc-v2", name="view_file"),
+            ai("tail"),
+        ]
+        middle, anchor, replacements, remaining = self._select_v2(msgs)
+        m_ids = {m.id for m in middle}
+        assert msgs[2].id not in m_ids and msgs[3].id not in m_ids  # r1 组是最新有效视图 → 保护
+        assert replacements == []
+
+    def test_stale_placeholder_keeps_id_and_pairing(self):
+        # stale 替换保留 id/tool_call_id/name，仅 content 替换；最新视图完整保留。
+        msgs = [
+            sysm(), hum(),
+            ai("r1", ("v1", "v2"), ("/a/hello.py", "/a/asdf.py")),
+            view_tm("tc-v1"), view_tm("tc-v2"),
+            ai("r2", ("v3",), ("/a/hello.py",)), view_tm("tc-v3"),
+            ai("tail"),
+        ]
+        middle, anchor, replacements, remaining = self._select_v2(msgs)
+        repl = {r.id: r for r in replacements}
+        assert len(replacements) == 1
+        stale = repl[msgs[3].id]
+        assert stale.tool_call_id == "tc-v1"
+        assert stale.name == "view_file"
+        assert stale.id == msgs[3].id
+        assert str(stale.content).startswith("[stale content removed:")
+        # 最新视图组 r2 完整保留且内容未动
+        remaining_ids = {m.id for m in remaining}
+        assert msgs[5].id in remaining_ids and msgs[6].id in remaining_ids
+        assert str(msgs[6].content).startswith("v")
+
+    def test_no_path_info_falls_back_protect_all(self):
+        # 兼容回退：file_path 解析不出 → 整组保护（旧行为，绝不误解绑）。
+        msgs = [
+            sysm(), hum(),
+            ai("r1", ("v1",)), view_tm("tc-v1"),
+            ai("r2", ("v2",)), view_tm("tc-v2"),
+            ai("r3", ("v3",)), view_tm("tc-v3"),
+            ai("tail"),
+        ]
+        middle, anchor, replacements, remaining = self._select_v2(msgs)
+        assert middle == []
+        assert replacements == []
+
+
 class TestIncrementalCompact:
     @pytest.fixture
     def fake_llm(self, monkeypatch):
@@ -414,6 +568,22 @@ class TestIncrementalCompact:
         assert result.tokens_freed > 0
         remaining = _remaining_after(msgs, result.removals)
         assert_pair_integrity(remaining)
+
+    def test_stale_only_result_without_summary_call(self, fake_llm):
+        # 窗口全保护但产生 stale 替换 → incremental_compact 产出替换，不调用摘要模型。
+        msgs = [
+            sysm(), hum(),
+            ai("r1", ("v1", "v2"), ("/a/hello.py", "/a/asdf.py")),
+            view_tm("tc-v1"), view_tm("tc-v2"),
+            ai("r2", ("v3",), ("/a/hello.py",)), view_tm("tc-v3"),
+            ai("tail"),
+        ]
+        result = asyncio.run(incremental_compact(msgs, keep_recent=1, min_messages=1))
+        assert result is not None
+        assert result.removals == []
+        assert len(result.replacements) == 1
+        assert result.replacements[0].id == msgs[3].id
+        assert str(result.replacements[0].content).startswith("[stale content removed:")
 
     def test_too_few_messages_none(self):
         msgs = [sysm(), hum()]

@@ -5,7 +5,7 @@ LLM node factory — model invocation with optional tool binding.
 from langchain_core.runnables import RunnableConfig
 from langchain_core.messages import SystemMessage
 
-from utils.model import init_model, ainvoke_with_retry
+from utils.model import init_model, ainvoke_with_content_guard
 from utils.settings import settings
 from utils.logging import get_logger
 from utils.common import validate_identity
@@ -216,11 +216,21 @@ def make_llm(tools: list | None = None):
 
         # Invoke the LLM with the system prompt and message history
         try:
-            response = await ainvoke_with_retry(model, all_messages, config=config_with_id)
+            response = await ainvoke_with_content_guard(
+                model, all_messages, config=config_with_id, role="sub_agent"
+            )
             removals = pipeline_result.removals if pipeline_result else []
+            replacements = pipeline_result.replacements if pipeline_result else []
             checkpoint = pipeline_result.checkpoint if pipeline_result else state.get("compaction_checkpoint")
+            if removals or replacements:
+                # 观测日志：确认 T2 的删除/替换真实写回 state（add_messages 生效）。
+                logger.info(
+                    "sub_agent_state_writeback",
+                    removals=len(removals),
+                    replacements=len(replacements),
+                )
             return {
-                "sub_agent_messages": [response] + removals,
+                "sub_agent_messages": [response] + removals + replacements,
                 "sub_agent_iteration": state["sub_agent_iteration"] + 1,
                 "compaction_checkpoint": checkpoint,
             }
