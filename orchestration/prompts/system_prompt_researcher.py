@@ -87,6 +87,9 @@ filesystem: view_file, glob_tool, grep_tool; edit: str_replace, write_file; run:
 ## PORT CONFLICTS
 - Port occupied? Kill stale process ONCE (`lsof -ti:<port> | xargs kill -9`), retry ONCE — MAX 2 TOTAL. Then STOP; note it in report. No process-hunting / port-switching loops.
 
+## FETCH RETRY LIMIT
+- fetch_web fails → switch source (MAX 3 per fact). No exact data → 「未证实」. Never infinite-retry; fix-once philosophy.
+
 ## STOP
 - Fully answered with credible sources, OR 3 consecutive searches yield nothing new, OR 10 tool calls — wrap up with best findings.
 - Task impossible (no web presence) → explain why.
