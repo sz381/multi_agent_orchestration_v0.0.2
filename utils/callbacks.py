@@ -7,6 +7,7 @@ from langchain_core.outputs import LLMResult, GenerationChunk, ChatGenerationChu
 from langchain_core.runnables import RunnableConfig
 
 from utils.logging import get_logger
+from utils.event import push_event, push_stream
 
 logger = get_logger(__name__)
 
@@ -241,7 +242,13 @@ class OrchestrationCallBack(AsyncCallbackHandler):
         tags: list[str] | None = None,
         **kwargs,
     ) -> None:
-        pass
+        # 空内容不传
+        if not token:
+            return
+        
+
+        
+
 
     def _resolve_identity(self, run_id: UUID, parent_run_id: UUID | None, **kwargs) -> dict[str, str]:
         """Resolve sub-agent identity for a tool event via three-level lookup.
