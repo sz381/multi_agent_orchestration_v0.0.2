@@ -17,9 +17,9 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
 from server.db.repository import load_events
-from server.orch_manager import orch_manager
 from server.schema.completion import Choice, Delta, StreamChunk
 from server.schema.orch import CreateOrchestrationRequest
+from server.service.orch_manager import orch_manager
 from utils import event
 from utils.logging import get_logger
 
