@@ -49,7 +49,7 @@ def _to_choice(evt: dict, orchestration_id: str, conversation_id: str) -> Choice
             conversation_id=conversation_id,
             status="done",
             finish_reason="stop",
-            delta=None,  # terminal frames carry no delta block
+            delta=None,
         )
     if evt["type"] == "error":
         return Choice(
@@ -57,7 +57,7 @@ def _to_choice(evt: dict, orchestration_id: str, conversation_id: str) -> Choice
             conversation_id=conversation_id,
             status="failed",
             error_message=evt.get("error_message"),
-            delta=None,  # terminal frames carry no delta block
+            delta=None,
         )
     delta = Delta.model_validate(evt)
     return Choice(
