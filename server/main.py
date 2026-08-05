@@ -1,7 +1,11 @@
+"""
+Main Entry Point for the Multi-Agent Orchestration API.
+"""
+
 import logging
 from contextlib import asynccontextmanager
 
-from server.router import health
+from server.router import health, orch
 from utils.logging import setup_logging
 from utils.settings import setup_langsmith_tracing, settings
 
@@ -38,9 +42,8 @@ if settings.dev_mode:
         allow_headers=["*"],
     )
 # else:
-#     # 生产模式权限未设置
+#     # Production mode CORS permission has not been set.
 
 
 app.include_router(health.router, prefix="/api")
-# app.include_router(task.router, prefix="/api")
-
+app.include_router(orch.router, prefix="/api")

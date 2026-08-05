@@ -1,3 +1,16 @@
+"""Streaming-event collection layer bridging LLM/tool callbacks to the event bridge.
+
+- on_llm_new_token        -> push_stream (token deltas)
+- on_tool_start / on_tool_end -> tool_status / tool_output /
+                                 file_changes / plan
+- on_llm_end without tool calls -> worker_done (sub-agents only)
+
+Terminal done/error events are owned by orch_manager and never emitted
+here. Every push is fail-open: no-ops with debug logging outside HTTP
+mode (CLI runs unchanged).
+"""
+
+import json
 import structlog
 from typing import Any
 from uuid import UUID
@@ -17,6 +30,12 @@ _IDENTITY_KEYS = ("sub_agent_name", "sub_agent_id", "task_id", "task_name")
 # Safety limit — clear all mapping dicts if any one exceeds this size.
 # Prevents unbounded growth from leaked entries in long-running orchestrations.
 _MAX_CTX_SIZE = 1000
+
+# Tools that produce file paths; their inputs carry the produced path.
+_WRITE_TOOLS = ("write_file", "str_replace", "clean_dir")
+
+# Plan-management tools; their outputs carry a full plan snapshot.
+_PLAN_TOOLS = ("make_plan", "edit_plan", "delete_plan")
 
 
 class OrchestrationCallBack(AsyncCallbackHandler):
@@ -96,7 +115,16 @@ class OrchestrationCallBack(AsyncCallbackHandler):
         tags: list[str] | None = None,
         **kwargs
     ) -> None:
-        """Extract tool_call_ids from LLM response and map them to identity."""
+        """Map tool_call_ids to identity, then emit worker_done for tool-less ends.
+
+        Tool-call ids are recorded so on_tool_start can resolve identity.
+        An LLM end without tool calls closes the sub-agent's ReAct loop and
+        emits worker_done (skipped for the orchestrator). Terminal
+        done/error events are owned by orch_manager.
+
+        Returns:
+            None.
+        """
         try:
             identity = self._llm_ctx.get(str(run_id))
             if not identity:
@@ -127,6 +155,21 @@ class OrchestrationCallBack(AsyncCallbackHandler):
                 run_id=run_id,
                 llm_role=identity.get("llm_role", "agent"),
             )
+
+            # LLM call without tools ends the ReAct loop: emit worker_done
+            # for the streaming layer. Terminal done/error events are owned
+            # by orch_manager (published after the graph fully returns).
+            if not has_tool_calls and identity.get("sub_agent_id") != "orchestrator":
+                push_event("worker_done", {
+                    "worker_done": {
+                        "sub_agent_id": identity.get("sub_agent_id", ""),
+                        "sub_agent_name": identity.get("sub_agent_name", ""),
+                        "status": "done",
+                        "token_used": _extract_token_used(response),
+                    },
+                    "sub_agent_id": identity.get("sub_agent_id", ""),
+                    "sub_agent_name": identity.get("sub_agent_name", ""),
+                })
         except Exception:
             logger.warning("callback_error", handler="on_llm_end", exc_info=True)
 
@@ -162,10 +205,22 @@ class OrchestrationCallBack(AsyncCallbackHandler):
         inputs: dict[str, Any] | None = None,
         **kwargs
     ) -> None:
-        """Log tool start with resolved sub-agent identity."""
+        """Record the tool run and emit a tool_status(executing) event.
+
+        Stores {ctx, name, file_path} for on_tool_end, logs the call with
+        truncated input, and pushes a streaming tool_status event
+        (fail-open outside HTTP mode).
+
+        Returns:
+            None.
+        """
         ctx = self._resolve_identity(run_id, parent_run_id, **kwargs)
         try:
-            self._tool_run_map[str(run_id)] = ctx
+            self._tool_run_map[str(run_id)] = {
+                "ctx": ctx,
+                "name": serialized["name"],
+                "file_path": _extract_file_path(serialized["name"], inputs),
+            }
             truncated_input = input_str[:200] + ("...[truncated]" if len(input_str) > 200 else "")
             logger.info(
                 "Tool Start",
@@ -179,6 +234,16 @@ class OrchestrationCallBack(AsyncCallbackHandler):
                 parent_run_id=parent_run_id,
                 tags=tags,
             )
+            push_event("tool_status", {
+                "tool_status": {
+                    "action": "executing",
+                    "name": serialized["name"],
+                    "params": _compact_params(inputs),
+                    "tool_call_id": kwargs.get("tool_call_id"),
+                },
+                "sub_agent_id": ctx.get("sub_agent_id", ""),
+                "sub_agent_name": ctx.get("sub_agent_name", ""),
+            })
         except Exception:
             logger.warning("callback_error", handler="on_tool_start", exc_info=True)
 
@@ -191,9 +256,22 @@ class OrchestrationCallBack(AsyncCallbackHandler):
         tags: list[str] | None = None,
         **kwargs
     ) -> None:
-        """Clean up mapping dictionaries and log tool completion."""
+        """Clean up mappings and emit tool_status/tool_output/file_changes/plan.
+
+        Consumes the entry recorded by on_tool_start, logs the result with
+        truncated output, and pushes the streaming events: tool_status
+        (done), tool_output, file_changes (write tools), and plan (plan
+        tools, when a plan snapshot is present). Fail-open outside HTTP
+        mode.
+
+        Returns:
+            None.
+        """
         try:
-            ctx = self._tool_run_map.pop(str(run_id), None) or {}
+            entry = self._tool_run_map.pop(str(run_id), None) or {}
+            ctx = entry.get("ctx") or {}
+            tool_name = entry.get("name") or ""
+            file_path = entry.get("file_path")
             if parent_run_id:
                 self._llm_ctx.pop(str(parent_run_id), None)
 
@@ -207,6 +285,29 @@ class OrchestrationCallBack(AsyncCallbackHandler):
                 output=output_str,
                 run_id=run_id,
             )
+
+            # Streaming events for the HTTP layer (fail-open, no-ops in CLI).
+            tool_call_id = kwargs.get("tool_call_id")
+            push_event("tool_status", {
+                "tool_status": {
+                    "action": "done",
+                    "name": tool_name,
+                    "tool_call_id": tool_call_id,
+                },
+                "sub_agent_id": ctx.get("sub_agent_id", ""),
+                "sub_agent_name": ctx.get("sub_agent_name", ""),
+            })
+            push_event("tool_output", {
+                "tool_output": _output_text(output),
+                "sub_agent_id": ctx.get("sub_agent_id", ""),
+                "sub_agent_name": ctx.get("sub_agent_name", ""),
+            })
+            if file_path:
+                push_event("file_changes", {"file_changes": [{"path": file_path}]})
+            if tool_name in _PLAN_TOOLS:
+                plan = _try_extract_plan(output)
+                if plan is not None:
+                    push_event("plan", {"plan": plan})
         except Exception:
             logger.warning("callback_error", handler="on_tool_end", exc_info=True)
 
@@ -242,20 +343,54 @@ class OrchestrationCallBack(AsyncCallbackHandler):
         tags: list[str] | None = None,
         **kwargs,
     ) -> None:
+        """Push each token delta to the orchestration channel (stream events).
+
+        Identity comes from _llm_ctx (peek, not popped), falling back to
+        _resolve_identity. Empty tokens or empty extracted text are
+        skipped. Fail-open: push_stream no-ops outside HTTP mode.
+
+        Returns:
+            None.
+        """
         # 空内容不传
         if not token:
             return
-        
+        try:
+            identity = self._llm_ctx.get(str(run_id)) or self._resolve_identity(
+                run_id, parent_run_id, **kwargs
+            )
+            content = _token_to_text(token)
+            if not content:
+                return
+            # Fail-open: no-ops with debug logging outside HTTP mode.
+            push_stream(
+                content,
+                identity.get("sub_agent_id") or "orchestrator",
+                identity.get("sub_agent_name") or "orchestrator",
+            )
+        except Exception:
+            logger.warning("callback_error", handler="on_llm_new_token", exc_info=True)
 
-        
-
-
-    def _resolve_identity(self, run_id: UUID, parent_run_id: UUID | None, **kwargs) -> dict[str, str]:
+    def _resolve_identity(
+        self,
+        run_id: UUID,
+        parent_run_id: UUID | None,
+        **kwargs
+    ) -> dict[str, str]:
         """Resolve sub-agent identity for a tool event via three-level lookup.
 
         1. _tool_call_ctx[tool_call_id]  — main path (set by on_llm_end)
         2. structlog contextvars          — fallback (set by prepare_node)
         3. _llm_ctx[parent_run_id]        — last resort
+
+        Args:
+            run_id:        Id of the tool run.
+            parent_run_id: Id of the parent LLM run, when nested.
+
+        Returns:
+            Identity dict (sub_agent_* / task_* / llm_role keys); an
+            orchestrator placeholder when nothing resolves (expected for
+            orchestrator tools, not an error).
         """
         # tool_call_id lookup
         tc_id = kwargs.get("tool_call_id", "")
@@ -291,6 +426,148 @@ class OrchestrationCallBack(AsyncCallbackHandler):
             "task_id": "",
             "task_name": "",
         }
+
+
+def _token_to_text(token: str | list[str | dict[str, Any]]) -> str:
+    """Flatten a langchain token (str or chunk list) into plain text.
+
+    Args:
+        token: Raw token delta (str, or list of str/dict chunks).
+
+    Returns:
+        The concatenated plain text; "" for empty or unmappable tokens.
+    """
+    if isinstance(token, str):
+        return token
+    if isinstance(token, list):
+        parts: list[str] = []
+        for item in token:
+            if isinstance(item, str):
+                parts.append(item)
+            elif isinstance(item, dict):
+                text = item.get("text") or item.get("content")
+                if isinstance(text, str):
+                    parts.append(text)
+        return "".join(parts)
+    return str(token) if token else ""
+
+
+def _compact_params(params: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Shrink tool inputs for SSE frames: 200 chars per value, 8 keys max.
+
+    Args:
+        params: Raw tool inputs dict.
+
+    Returns:
+        The compacted dict (values stringified), or None when params is
+        empty. "_truncated": True marks truncated keys/values.
+    """
+    if not params:
+        return None
+    compact: dict[str, Any] = {}
+    for i, (key, value) in enumerate(params.items()):
+        if i >= 8:
+            compact["_truncated"] = True
+            break
+        text = str(value)
+        if len(text) > 200:
+            text = text[:200] + f"...({len(text)} chars)"
+            compact["_truncated"] = True
+        compact[key] = text
+    return compact
+
+
+def _extract_file_path(name: str, inputs: dict[str, Any] | None) -> str | None:
+    """Pull the produced file path from write-tool inputs.
+
+    Args:
+        name:   Tool name (must be in _WRITE_TOOLS).
+        inputs: Tool inputs dict.
+
+    Returns:
+        The produced path as str, or None when unavailable or the tool
+        is not a write tool.
+    """
+    if not inputs or name not in _WRITE_TOOLS:
+        return None
+    if name == "clean_dir":
+        path = inputs.get("dir_path")
+    else:
+        path = inputs.get("file_path")
+    return str(path) if path else None
+
+
+def _try_extract_plan(output: Any) -> list[dict] | None:
+    """Extract the plan snapshot from a plan-tool output.
+
+    Output may be a plain JSON string, a dict, or an object with a
+    content/update attribute (e.g. Command).
+
+    Args:
+        output: Raw tool output of any shape.
+
+    Returns:
+        The plan list of phases, or None when no valid plan is found.
+    """
+    candidates: list[Any] = []
+    if isinstance(output, dict):
+        candidates.append(output)
+    elif isinstance(output, str):
+        candidates.append(output)
+    else:
+        for attr in ("content", "update", "response"):
+            value = getattr(output, attr, None)
+            if isinstance(value, (dict, str)):
+                candidates.append(value)
+    for candidate in candidates:
+        if isinstance(candidate, str):
+            try:
+                candidate = json.loads(candidate)
+            except (json.JSONDecodeError, TypeError):
+                continue
+        if isinstance(candidate, dict):
+            plan = candidate.get("plan")
+            if isinstance(plan, list):
+                return plan
+    return None
+
+
+def _output_text(output: Any) -> str:
+    """Render a tool output as display text (prefer .content over repr).
+
+    Args:
+        output: Raw tool output.
+
+    Returns:
+        Display text: the string itself, else .content, else str(output).
+    """
+    if isinstance(output, str):
+        return output
+    value = getattr(output, "content", None)
+    if isinstance(value, str):
+        return value
+    return str(output)
+
+
+def _extract_token_used(response: LLMResult) -> int | None:
+    """Best-effort total token count from the LLM response metadata.
+
+    Args:
+        response: LLM result from on_llm_end.
+
+    Returns:
+        Total tokens as int, or None when the metadata is missing or
+        malformed.
+    """
+    llm_output = getattr(response, "llm_output", None)
+    if not isinstance(llm_output, dict):
+        return None
+    usage = llm_output.get("token_usage") or llm_output.get("usage")
+    if isinstance(usage, dict):
+        total = usage.get("total_tokens")
+        if isinstance(total, int):
+            return total
+    return None
 
 
 def create_orchestration_config(

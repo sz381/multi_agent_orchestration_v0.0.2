@@ -82,16 +82,24 @@ class ToolStatus(BaseModel):
 class Delta(BaseModel):
     """Streaming incremental content block.
 
+    Every delta is type-tagged; the frontend branches on ``type`` instead
+    of probing which payload field is set.
+
     Attributes:
-        content:       Incremental text, may be None or empty string.
-        tool_status:   Tool call lifecycle event, only for action="executing" or "done".
-        tool_output:   Tool execution result content, sent after tool_status action="done".
-                       Frontend may truncate display as needed; no backend length limit.
-        plan:          Live plan snapshot (all phases), pushed on plan changes.
-        file_changes:  File write/modify events produced by sub-agents.
-        worker_done:   Sub-agent completion event.
+        type:           Event type: "stream" / "plan" / "tool_status" /
+                        "tool_output" / "worker_done" / "file_changes".
+                        Terminal states "done"/"error" live on Choice
+                        (status / finish_reason / error_message) instead.
+        content:        Incremental text, may be None or empty string.
+        tool_status:    Tool call lifecycle event, only for action="executing" or "done".
+        tool_output:    Tool execution result content, sent after tool_status action="done".
+                        Frontend may truncate display as needed; no backend length limit.
+        plan:           Live plan snapshot (all phases), pushed on plan changes.
+        file_changes:   File write/modify events produced by sub-agents.
+        worker_done:    Sub-agent completion event.
     """
 
+    type: str = "stream"
     content: str | None = None
     tool_status: ToolStatus | None = None
     tool_output: str | None = None
@@ -121,7 +129,9 @@ class Choice(BaseModel):
         error_message:          Failure reason when status="failed".
     """
 
-    delta: Delta = Field(default_factory=Delta)
+    # None only on terminal frames (done / error): the delta would
+    # otherwise serialize as an empty {"type": "stream"} block.
+    delta: Delta | None = Field(default_factory=Delta)
     index: int = 0
     finish_reason: str | None = None
     orchestration_id: str | None = None
