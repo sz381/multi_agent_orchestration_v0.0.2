@@ -1,8 +1,8 @@
-# Multi-Agent Orchestration v0.0.2
+## Multi-Agent Orchestration v0.0.2
 
 A LangGraph-based multi-agent orchestration system that coordinates an orchestrator with sub-agents to tackle tasks ranging from easy to complex.
 
-## Features
+### Features
 
 - Orchestrator-driven planning with parallel worker fanout
 - Built-in tool ecosystem (filesystem, shell, web search)
@@ -10,7 +10,7 @@ A LangGraph-based multi-agent orchestration system that coordinates an orchestra
 - Streaming responses via SSE
 - FastAPI backend with PostgreSQL persistence
 
-## Quick Start
+### Quick Start
 
 ```bash
 docker compose up -d
@@ -21,7 +21,7 @@ chmod +x run_app.sh
 ./run_app.sh
 ```
 
-## Structure
+### Structure
 
 - `orchestration/` — core orchestration graph, workers, prompts, tools
 - `server/` — FastAPI app, routers, schemas
