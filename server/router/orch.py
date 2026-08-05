@@ -16,6 +16,7 @@ from typing import AsyncGenerator
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
+from server.db.repository import load_events
 from server.orch_manager import orch_manager
 from server.schema.completion import Choice, Delta, StreamChunk
 from server.schema.orch import CreateOrchestrationRequest
@@ -81,26 +82,52 @@ def _sse_frame(choice: Choice) -> str:
     return f"data: {chunk.model_dump_json(exclude_none=True)}\n\n"
 
 
-async def _event_stream(orchestration_id: str, queue: object) -> AsyncGenerator[str, None]:
-    """Replay the snapshot, then stream live events until a terminal one.
+async def _event_stream(
+    orchestration_id: str,
+    queue: object,
+    db_events: list[dict] | None = None,
+) -> AsyncGenerator[str, None]:
+    """SSE: in-memory replay+live, or one-shot replay from the DB archive.
 
-    Replays first (subscribe + snapshot are synchronous, so nothing is
-    duplicated into the live queue) and closes immediately when the
-    snapshot already carries a terminal event; otherwise consumes the
-    live queue until a terminal event arrives or the client disconnects.
-    When the orchestration was deleted between subscribe() and this
-    generator starting, a terminal error frame is emitted instead of
-    hanging on an empty queue.
+    Memory mode (queue is not None): replays the channel snapshot, then
+    streams live events until a terminal one. Replays first (subscribe +
+    snapshot are synchronous, so nothing is duplicated into the live
+    queue) and closes immediately when the snapshot already carries a
+    terminal event. When the orchestration was deleted between
+    subscribe() and this generator starting, a terminal error frame is
+    emitted instead of hanging on an empty queue.
+
+    DB mode (db_events is not None): the orchestration finished and was
+    dropped from memory; its archived events are replayed once and the
+    stream closes.
 
     Args:
         orchestration_id: Id of the run being streamed.
-        queue:            Live queue from orch_manager.subscribe().
+        queue:            Live queue from orch_manager.subscribe()
+                          (None in DB mode).
+        db_events:        Archived event list when streaming from the
+                          DB (None in memory mode).
 
     Yields:
         SSE frame strings ("data: {...}\n\n").
     """
+    snapshot = await orch_manager.get_orchestration(orchestration_id)
+    if db_events is not None:
+        logger.debug(
+            "events_replayed_from_db",
+            orchestration_id=orchestration_id,
+            event_count=len(db_events),
+        )
+        conversation_id = (
+            snapshot["conversation_id"] if snapshot is not None else ""
+        )
+        for evt in db_events:
+            yield _sse_frame(_to_choice(evt, orchestration_id, conversation_id))
+            if evt["type"] in ("done", "error"):
+                # The archive carries the terminal event: close.
+                return
+        return
     channel = event.get_channel(orchestration_id)
-    snapshot = orch_manager.get_orchestration(orchestration_id)
     if channel is None or snapshot is None:
         # Deleted between subscribe() and generator start (concurrent
         # DELETE): send a terminal error frame instead of hanging.
@@ -155,7 +182,7 @@ async def create_orchestration(body: CreateOrchestrationRequest) -> dict:
     orchestration_id = orch_manager.create(body.user_query, body.conversation_id)
 
     try:
-        snapshot = orch_manager.get_orchestration(orchestration_id)
+        snapshot = await orch_manager.get_orchestration(orchestration_id)
     except Exception as e:
         logger.error(
             "orchestration_snapshot_error",
@@ -200,23 +227,26 @@ async def create_orchestration(body: CreateOrchestrationRequest) -> dict:
 
 
 @router.get("/orchestrations", tags=["Orchestrations"])
-def list_orchestrations() -> list[dict]:
-    """All orchestration snapshots, newest first.
+async def list_orchestrations() -> list[dict]:
+    """All orchestration snapshots (memory + archive), newest first.
 
     Returns:
         Snapshots ordered newest first; empty list when none exist.
     """
-    return orch_manager.list_all_orchestrations()
+    return await orch_manager.list_all_orchestrations()
 
 
 @router.get("/orchestrations/{orchestration_id}", tags=["Orchestrations"])
-def get_orchestration(orchestration_id: str) -> dict:
+async def get_orchestration(orchestration_id: str) -> dict:
     """Snapshot of one orchestration (status / response / error).
+
+    Served from memory for live runs; archived runs are read from the
+    DB, so finished orchestrations stay queryable after restarts.
 
     Raises:
         HTTPException(404): When the orchestration does not exist.
     """
-    snapshot = orch_manager.get_orchestration(orchestration_id)
+    snapshot = await orch_manager.get_orchestration(orchestration_id)
 
     if snapshot is None:
         raise HTTPException(status_code=404, detail="orchestration not found")
@@ -226,18 +256,39 @@ def get_orchestration(orchestration_id: str) -> dict:
 
 @router.get("/orchestrations/{orchestration_id}/events", tags=["Orchestrations"])
 async def stream_events(orchestration_id: str) -> StreamingResponse:
-    """SSE stream: replay (full text + structured events), then live tokens/events.
+    """SSE stream: memory replay+live, or one-shot replay from the DB.
+
+    Live orchestrations are streamed from memory (replay, then live
+    events). Finished orchestrations were dropped from memory after
+    archiving, so their full event history is replayed from the DB — the
+    stream replays everything once and closes.
 
     Raises:
         HTTPException(404): When the orchestration does not exist.
     """
     queue = orch_manager.subscribe(orchestration_id)
-    
-    if queue is None:
+
+    if queue is not None:
+        return StreamingResponse(
+            _event_stream(orchestration_id, queue),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
+    # Not in memory: replay from the DB archive (finished runs).
+    snapshot = await orch_manager.get_orchestration(orchestration_id)
+    if snapshot is None:
+        raise HTTPException(status_code=404, detail="orchestration not found")
+    db_events = await load_events(orchestration_id)
+    if db_events is None:
         raise HTTPException(status_code=404, detail="orchestration not found")
 
     return StreamingResponse(
-        _event_stream(orchestration_id, queue),
+        _event_stream(orchestration_id, queue, db_events=db_events),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -248,11 +299,14 @@ async def stream_events(orchestration_id: str) -> StreamingResponse:
 
 
 @router.delete("/orchestrations/{orchestration_id}", status_code=204, tags=["Orchestrations"])
-def delete_orchestration(orchestration_id: str) -> None:
-    """Cancel the run (if still running) and drop all its state.
+async def delete_orchestration(orchestration_id: str) -> None:
+    """Cancel the run (if still running) and permanently remove it.
+
+    Memory state is dropped and the DB archive is deleted, so the
+    orchestration disappears from history and lists.
 
     Raises:
         HTTPException(404): When the orchestration does not exist.
     """
-    if not orch_manager.delete(orchestration_id):
+    if not await orch_manager.delete(orchestration_id):
         raise HTTPException(status_code=404, detail="orchestration not found")

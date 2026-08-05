@@ -50,6 +50,9 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     dev_mode: bool = True
 
+    # Postgres archive URL; empty string disables persistence (fail-open).
+    database_url: str = ""
+
 
 settings = Settings()
 

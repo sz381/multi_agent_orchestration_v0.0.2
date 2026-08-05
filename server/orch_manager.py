@@ -22,6 +22,12 @@ from langchain_core.messages import HumanMessage
 
 from orchestration.graph import build_graph
 from orchestration.tools._kernel._web import close_crawler
+from server.db.repository import (
+    archive_orchestration,
+    delete_archive,
+    list_orchestrations,
+    load_orchestration,
+)
 from utils import event
 from utils.callbacks import create_orchestration_config
 from utils.logging import get_logger
@@ -112,12 +118,15 @@ class OrchManager:
 
         return orchestration_id
 
-    def get_orchestration(self, orchestration_id: str) -> dict | None:
-        """Snapshot: id / conversation / query / status / response / error.
+    def _memory_snapshot(self, orchestration_id: str) -> dict | None:
+        """In-memory snapshot (live state); None when the channel is gone.
+
+        Args:
+            orchestration_id: Id of the orchestration.
 
         Returns:
-            The assembled snapshot dict, or None when the orchestration
-            does not exist (channel already removed).
+            The snapshot dict assembled from the live channel + request
+            registries, or None when the orchestration is not in memory.
         """
         channel = event.get_channel(orchestration_id)
         if channel is None:
@@ -132,15 +141,48 @@ class OrchManager:
             "created_at": self._created_at[orchestration_id],
         }
 
-    def list_all_orchestrations(self) -> list[dict]:
-        """All orchestration snapshots, newest first.
+    async def get_orchestration(self, orchestration_id: str) -> dict | None:
+        """Snapshot: live in-memory state first, DB archive as fallback.
+
+        Finished orchestrations are dropped from memory right after they
+        are archived, so their snapshots come from the DB here.
+
+        Args:
+            orchestration_id: Id of the orchestration.
 
         Returns:
-            Snapshots ordered by creation time, newest first. Empty list
-            when no orchestration has been created yet.
+            The assembled snapshot dict, or None when the orchestration
+            does not exist (neither in memory nor archived).
         """
-        snapshots = [self.get_orchestration(i) for i in self._tasks]
-        return [s for s in snapshots if s is not None][::-1]
+        snapshot = self._memory_snapshot(orchestration_id)
+        if snapshot is not None:
+            return snapshot
+        return await load_orchestration(orchestration_id)
+
+    async def list_all_orchestrations(self) -> list[dict]:
+        """All snapshots (memory + archive), newest first.
+
+        Live orchestrations come from memory; archived ones come from the
+        DB. Snapshots are merged by id (memory wins) and ordered by
+        creation time, newest first.
+
+        Returns:
+            Merged snapshots, newest first. Empty list when nothing
+            exists.
+        """
+        mem = [
+            s
+            for s in (
+                self._memory_snapshot(i) for i in list(self._tasks)
+            )
+            if s is not None
+        ]
+        merged = {s["orchestration_id"]: s for s in mem}
+        for s in await list_orchestrations():
+            merged.setdefault(s["orchestration_id"], s)
+        return sorted(
+            merged.values(), key=lambda s: s["created_at"], reverse=True
+        )
 
     def update_orchestration(
         self,
@@ -174,16 +216,15 @@ class OrchManager:
             return None
         return event.subscribe(orchestration_id)
 
-    def delete(self, orchestration_id: str) -> bool:
-        """Cancel the runner and drop all channel state.
+    async def delete(self, orchestration_id: str) -> bool:
+        """Cancel the runner, drop memory state and the DB archive.
 
-        Cancellation is asynchronous: the runner's CancelledError handler
-        may still run after this returns, but its event pushes fail open
-        once the channel is gone.
+        DELETE means permanent removal: the archived rows are deleted as
+        well, so the orchestration disappears from history and lists.
 
         Returns:
-            True when the orchestration existed and was removed, False
-            otherwise (no-op, maps to 404).
+            True when the orchestration existed (in memory and/or in the
+            DB) and was removed, False otherwise (no-op, maps to 404).
         """
         task = self._tasks.pop(orchestration_id, None)
         if task is not None and not task.done():
@@ -193,7 +234,30 @@ class OrchManager:
         self._responses.pop(orchestration_id, None)
         self._errors.pop(orchestration_id, None)
         self._created_at.pop(orchestration_id, None)
-        return event.remove_channel(orchestration_id)
+        removed = event.remove_channel(orchestration_id)
+        db_deleted = await delete_archive(orchestration_id)
+        return removed or db_deleted
+
+    def _drop_from_memory(self, orchestration_id: str) -> None:
+        """Remove an archived orchestration from memory (DB owns it now).
+
+        Called only after a successful archive: from this point on every
+        query and replay for the id is served from the DB. Fallback mode
+        (archive failed) keeps the orchestration in memory instead.
+
+        Args:
+            orchestration_id: Id of the archived run.
+
+        Returns:
+            None.
+        """
+        self._tasks.pop(orchestration_id, None)
+        self._queries.pop(orchestration_id, None)
+        self._conversations.pop(orchestration_id, None)
+        self._responses.pop(orchestration_id, None)
+        self._errors.pop(orchestration_id, None)
+        self._created_at.pop(orchestration_id, None)
+        event.remove_channel(orchestration_id)
 
     async def _run_orchestration(
         self,
@@ -249,7 +313,45 @@ class OrchManager:
                 await close_crawler()
             except Exception:
                 logger.warning("close_crawler_failed", exc_info=True)
+            if await self._archive_orchestration(orchestration_id):
+                # Archive succeeded: the DB now owns the finished run,
+                # drop it from memory (fallback mode keeps it in memory
+                # when the archive failed).
+                self._drop_from_memory(orchestration_id)
             event.unbind_orchestration(token)
+
+    async def _archive_orchestration(self, orchestration_id: str) -> bool:
+        """Best-effort terminal archive: snapshot + full event list.
+
+        Called from the runner's finally block after the terminal event
+        was published, so the archive always contains the terminal
+        done/error event. When the channel is already gone (user DELETE
+        cancelled the run) nothing is archived — the run never finished.
+
+        Args:
+            orchestration_id: Id of the finished run.
+
+        Returns:
+            True when persisted (the caller may drop the memory state),
+            False otherwise (fail-open: DB errors are logged inside the
+            repository and never surface here).
+        """
+        channel = event.get_channel(orchestration_id)
+        if channel is None:
+            return False
+        snapshot = self._memory_snapshot(orchestration_id)
+        if snapshot is None:
+            return False
+        return await archive_orchestration(
+            orchestration_id=orchestration_id,
+            conversation_id=snapshot["conversation_id"],
+            user_query=snapshot["user_query"],
+            status=snapshot["status"],
+            response=snapshot["response"],
+            error_message=snapshot["error_message"],
+            created_at=snapshot["created_at"],
+            events=channel.snapshot(),
+        )
 
     def _collect_updates(self, orchestration_id: str, data: dict) -> None:
         """Track the final response emitted by end_orchestration.

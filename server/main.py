@@ -5,6 +5,7 @@ Main Entry Point for the Multi-Agent Orchestration API.
 import logging
 from contextlib import asynccontextmanager
 
+from server.db.session import close_pool, init_pool
 from server.router import health, orch
 from utils.logging import setup_logging
 from utils.settings import setup_langsmith_tracing, settings
@@ -24,7 +25,9 @@ async def lifespan(app: FastAPI):
         log_level=getattr(logging, settings.log_level, logging.INFO),
     )
     setup_langsmith_tracing()
+    await init_pool(settings.database_url)
     yield
+    await close_pool()
 
 
 app = FastAPI(

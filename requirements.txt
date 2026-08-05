@@ -25,3 +25,4 @@ langgraph-cli[inmem]
 langgraph-api
 python-pptx
 regex
+asyncpg
