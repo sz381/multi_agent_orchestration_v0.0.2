@@ -45,9 +45,9 @@ from utils.logging import get_logger
 
 logger = get_logger(__name__)
 
-ORCHESTRATOR_BUDGET = 34_000              # orchestrator 上下文总预算（60K→42K: 激活T2; 42K→34K: threshold 27K→19K, T1更早触发）
+ORCHESTRATOR_BUDGET = 145_000              # orchestrator 上下文总预算（256K→145K: 参考 qoder IDE 20 万 threshold/15 万压缩实践保守取值; threshold=130K, 注入 80K + 当前轮 ~50K 恰好到边, T1/T2 开始兜底防无限膨胀）
 ORCHESTRATOR_SUMMARY_OUTPUT_BUDGET = 2_000  # MAX_SUMMARY_OUTPUT（预算预留）
-SUB_AGENT_BUDGET = 18_000                 # sub-agent 上下文总预算（40K→27K: 激活T2; 27K→18K: 8_03_013轻任务T1全程0触发, threshold 12.5K→3.5K, T1约每4-5轮触发）
+SUB_AGENT_BUDGET = 20_000                  # sub-agent 上下文总预算（18K→20K: threshold 3.5K→5.5K, T1 稍晚触发, 边整边压缩）
 SUB_AGENT_SUMMARY_OUTPUT_BUDGET = 1_500   # MAX_SUMMARY_OUTPUT（预算预留）
 BUFFER_TOKENS = 13_000                    # 13k 缓冲：保证压缩器自身调用有空间
 

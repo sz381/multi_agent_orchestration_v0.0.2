@@ -1,8 +1,9 @@
 """Async postgres session: connection pool + schema bootstrap.
 
-The database is a write-once ARCHIVE for finished orchestrations. It is
-not read by the live API in this phase; the in-memory StreamChannel
-remains the source of truth for queries and SSE replay.
+The database is the ARCHIVE for finished orchestrations and the source
+of truth for cross-conversation memory: each archived row carries the
+terminal ``messages`` list (dumpd-serialized), the T2 compaction
+``summary``, and token/time diagnostics.
 
 Fail-open contract
 ------------------
@@ -29,7 +30,11 @@ CREATE TABLE IF NOT EXISTS orchestrations (
     response         TEXT NOT NULL DEFAULT '',
     error_message    TEXT NOT NULL DEFAULT '',
     created_at       DOUBLE PRECISION NOT NULL,
-    finished_at      DOUBLE PRECISION NOT NULL
+    finished_at      DOUBLE PRECISION NOT NULL,
+    messages         JSONB,
+    summary          TEXT,
+    total_tokens     BIGINT NOT NULL DEFAULT 0,
+    time_elapsed     DOUBLE PRECISION NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS events (
@@ -41,6 +46,11 @@ CREATE TABLE IF NOT EXISTS events (
     created_at       DOUBLE PRECISION NOT NULL,
     UNIQUE (orchestration_id, seq)
 );
+
+ALTER TABLE orchestrations ADD COLUMN IF NOT EXISTS messages JSONB;
+ALTER TABLE orchestrations ADD COLUMN IF NOT EXISTS summary TEXT;
+ALTER TABLE orchestrations ADD COLUMN IF NOT EXISTS total_tokens BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE orchestrations ADD COLUMN IF NOT EXISTS time_elapsed DOUBLE PRECISION NOT NULL DEFAULT 0;
 """
 
 

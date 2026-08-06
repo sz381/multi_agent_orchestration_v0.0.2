@@ -1,21 +1,51 @@
-"""Write-once archive: persist a finished orchestration atomically.
+"""Archive: persist a finished orchestration atomically + read back.
 
 Single transaction per orchestration: one row in ``orchestrations``
-(the result snapshot) plus one row per event in ``events`` (the process
-replay, seq-ordered). Either everything lands or nothing does — the
-archive is never left half-written.
+(the result snapshot + terminal messages + T2 summary) plus one row per
+event in ``events`` (the process replay, seq-ordered). Either everything
+lands or nothing does — the archive is never left half-written.
 
-Fail-open: any DB failure logs and returns False; the orchestration
-lifecycle is never blocked by the archive.
+The ``messages`` column is the cross-conversation memory asset: each
+archived row stores the terminal (post-T2) message list, serialized via
+``langchain_core.load.dumpd`` so ``loads`` can restore BaseMessage
+instances for injection into the next orchestration.
+
+Fail-open: any DB failure logs and returns False / empty; the
+orchestration lifecycle is never blocked by the archive.
 """
 
 import json
 import time
 
+from langchain_core.load import dumpd
+
 from utils.logging import get_logger
 from .session import get_pool
 
 logger = get_logger(__name__)
+
+
+def _parse_messages(raw) -> list:
+    """Normalize the stored messages column to a list of dumpd dicts.
+
+    asyncpg returns jsonb as a JSON string by default (no codec
+    registered), so the raw value may be a str or a list depending on
+    the code path; None (legacy rows) becomes an empty list.
+
+    Args:
+        raw: Raw value of the messages column.
+
+    Returns:
+        A list of dumpd dicts (possibly empty).
+    """
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        try:
+            return json.loads(raw)
+        except (TypeError, ValueError):
+            return []
+    return raw
 
 
 async def archive_orchestration(
@@ -27,6 +57,10 @@ async def archive_orchestration(
     error_message: str,
     created_at: float,
     events: list[dict],
+    messages: list | None = None,
+    summary: str = "",
+    total_tokens: int = 0,
+    time_elapsed: float = 0.0,
 ) -> bool:
     """Persist the snapshot + full event list in one transaction.
 
@@ -41,6 +75,12 @@ async def archive_orchestration(
         events:           Events from ``StreamChannel.snapshot()``; the
                           ``type`` key is stored in the type column, the
                           rest goes into the JSONB payload column.
+        messages:         Terminal (post-T2) message list; serialized
+                          with ``dumpd`` into the JSONB column. This is
+                          the cross-conversation memory asset.
+        summary:          T2 accumulated summary (compaction checkpoint).
+        total_tokens:     Terminal token counter from the final state.
+        time_elapsed:     Terminal elapsed seconds from the final state.
 
     Returns:
         True when persisted, False on any failure (fail-open).
@@ -55,6 +95,11 @@ async def archive_orchestration(
         return False
     archived_at = time.time()
     try:
+        messages_json = (
+            json.dumps([dumpd(m) for m in messages], ensure_ascii=False)
+            if messages
+            else "[]"
+        )
         async with pool.acquire() as conn:
             async with conn.transaction():
                 await conn.execute(
@@ -62,9 +107,10 @@ async def archive_orchestration(
                     INSERT INTO orchestrations (
                         orchestration_id, conversation_id, user_query,
                         status, response, error_message, created_at,
-                        finished_at
+                        finished_at, messages, summary, total_tokens,
+                        time_elapsed
                     )
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12)
                     """,
                     orchestration_id,
                     conversation_id,
@@ -74,6 +120,10 @@ async def archive_orchestration(
                     error_message,
                     created_at,
                     archived_at,
+                    messages_json,
+                    summary,
+                    total_tokens,
+                    time_elapsed,
                 )
                 await conn.executemany(
                     """
@@ -140,6 +190,10 @@ async def load_orchestration(orchestration_id: str) -> dict | None:
             "response": row["response"],
             "error_message": row["error_message"],
             "created_at": row["created_at"],
+            "messages": _parse_messages(row["messages"]),
+            "summary": row["summary"] or "",
+            "total_tokens": row["total_tokens"],
+            "time_elapsed": row["time_elapsed"],
         }
     except Exception as e:
         logger.error(
@@ -174,6 +228,10 @@ async def list_orchestrations() -> list[dict]:
                 "response": r["response"],
                 "error_message": r["error_message"],
                 "created_at": r["created_at"],
+                "messages": _parse_messages(r["messages"]),
+                "summary": r["summary"] or "",
+                "total_tokens": r["total_tokens"],
+                "time_elapsed": r["time_elapsed"],
             }
             for r in rows
         ]
@@ -219,6 +277,58 @@ async def load_events(orchestration_id: str) -> list[dict] | None:
             error=str(e)[:500],
         )
         return None
+
+
+async def load_conversation_history(conversation_id: str) -> list[dict]:
+    """All archived rows of one conversation, oldest first.
+
+    Serves the cross-conversation memory injection: the caller picks a
+    budget-driven window of recent rows (full messages) and falls back
+    to summaries for the rest.
+
+    Args:
+        conversation_id: Multi-turn anchor to load.
+
+    Returns:
+        Rows ordered by creation time, oldest first; each carries
+        ``messages`` (raw dumpd dicts), ``summary``, ``user_query``,
+        ``response`` and ``status``. Empty list when nothing archived
+        (or the DB is disabled / failed).
+    """
+    pool = get_pool()
+    if pool is None:
+        return []
+    try:
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT orchestration_id, user_query, status, response,
+                       messages, summary, created_at
+                FROM orchestrations
+                WHERE conversation_id = $1
+                ORDER BY created_at ASC
+                """,
+                conversation_id,
+            )
+        return [
+            {
+                "orchestration_id": r["orchestration_id"],
+                "user_query": r["user_query"],
+                "status": r["status"],
+                "response": r["response"],
+                "messages": _parse_messages(r["messages"]),
+                "summary": r["summary"] or "",
+                "created_at": r["created_at"],
+            }
+            for r in rows
+        ]
+    except Exception as e:
+        logger.error(
+            "load_conversation_history_failed",
+            conversation_id=conversation_id,
+            error=str(e)[:500],
+        )
+        return []
 
 
 async def delete_archive(orchestration_id: str) -> bool:
