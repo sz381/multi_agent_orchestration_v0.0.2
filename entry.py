@@ -3,7 +3,6 @@
 temporary test file, will be deleted later
 """
 import asyncio
-import json
 import logging
 
 from langchain_core.messages import AIMessageChunk, HumanMessage, ToolMessage
@@ -11,6 +10,7 @@ from langchain_core.messages import AIMessageChunk, HumanMessage, ToolMessage
 from orchestration.graph import build_graph
 from orchestration.tools._kernel._web import close_crawler
 from utils.callbacks import create_orchestration_config
+from utils.console import tool_summary
 from utils.logging import setup_logging
 
 setup_logging(dev_mode=True, log_level=logging.DEBUG)
@@ -147,65 +147,6 @@ def _safe_initial_state(**overrides) -> dict:
     return defaults
 
 
-_STATUS_ICONS = {"pending": "○", "in_progress": "◐", "done": "●"}
-
-
-def _plan_block(plan) -> str:
-    lines = ["\n" + "=" * 60, f"  PLAN ({len(plan)} phases)", "=" * 60]
-    for p in plan:
-        icon = _STATUS_ICONS.get(p.get("phase_status", ""), "○")
-        lines.append(f"  {icon} [{p.get('phase_id', '?')}] {p.get('phase_name', '?')}")
-        desc = p.get("phase_description", "")
-        if desc:
-            lines.append(f"      {desc}")
-    lines.append("=" * 60)
-    return "\n".join(lines)
-
-
-def _fanout_block(tasks) -> str:
-    lines = ["\n" + "=" * 60, f"  FANOUT — {len(tasks)} task(s) dispatched", "=" * 60]
-    for t in tasks:
-        icon = "●" if t.get("task_completion_status") else "○"
-        lines.append(f"  {icon} [{t.get('task_id', '?')}] {t.get('task_name', '?')}")
-        lines.append(f"      agent: {t.get('subagent_name', '?')} ({t.get('subagent_id', '?')})")
-        desc = t.get("task_description", "")
-        if desc:
-            lines.append(f"      {desc}")
-    lines.append("=" * 60)
-    return "\n".join(lines)
-
-
-def _tool_summary(msg: ToolMessage) -> str:
-    name = msg.name
-    try:
-        r = json.loads(msg.content)
-    except (json.JSONDecodeError, TypeError):
-        return f"[TOOL] {name}  {str(msg.content)[:100]}"
-    if name in ("make_plan", "edit_plan", "delete_plan"):
-        return _plan_block(r["plan"]) if r.get("plan") else f"[TOOL] {name}  {r.get('message', 'ok')}"
-    if name == "fanout_subagents":
-        return _fanout_block(r["tasks"]) if r.get("tasks") else f"[TOOL] {name}  {r.get('message', 'ok')}"
-    if r.get("status") == "error":
-        return f"[TOOL] {name}  error  {r.get('message', '')}"
-    if name == "view_file":
-        return f"[TOOL] {name}  ok  {r.get('path', '')} ({r.get('total_lines', '?')} lines)"
-    if name == "glob_tool":
-        return f"[TOOL] {name}  ok  {r.get('message', '')} ({r.get('count', 0)} files)"
-    if name == "grep_tool":
-        return f"[TOOL] {name}  ok  {r.get('total_files', 0)} files, {r.get('total_matches', 0)} matches"
-    if name == "bash":
-        code = r.get("exit_code")
-        exit_str = "TIMEOUT" if code is None else f"exit={code}"
-        return f"[TOOL] {name}  {exit_str}  {r.get('elapsed', 0)}s  {str(r.get('command', ''))[:120]}"
-    if name == "web_search":
-        return f"[TOOL] {name}  ok  {r.get('total_results', 0)} result(s)"
-    if name in ("str_replace", "write_file"):
-        return f"[TOOL] {name}  {r.get('status')}  {r.get('message', '')}"
-    if name == "fetch_web":
-        return f"[TOOL] {name}  ok  {len(msg.content)} chars"
-    return f"[TOOL] {name}  {str(msg.content)[:80]}"
-
-
 def _handle_updates(data: dict, header_ref: list):
     for node_name, output in data.items():
         if node_name == "tools":
@@ -216,7 +157,9 @@ def _handle_updates(data: dict, header_ref: list):
                     continue
                 for msg in item.get("messages", []):
                     if isinstance(msg, ToolMessage):
-                        print(_tool_summary(msg), flush=True)
+                        summary = tool_summary(msg)
+                        if summary:
+                            print(summary, flush=True)
             continue
         if node_name == "__error__":
             print(f"\n[ERROR] {output}", flush=True)

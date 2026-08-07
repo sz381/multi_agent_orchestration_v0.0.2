@@ -24,7 +24,7 @@ import time
 import uuid
 
 from langchain_core.load import load
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 
 from orchestration.graph import build_graph
 from orchestration.tools._kernel._web import close_crawler
@@ -37,8 +37,10 @@ from server.db.repository import (
 )
 from utils import event
 from utils.callbacks import create_orchestration_config
+from utils.console import tool_summary
 from utils.logging import get_logger
 from utils.model import count_tokens
+from utils.settings import settings
 
 logger = get_logger(__name__)
 
@@ -527,8 +529,28 @@ class OrchManager:
                 continue
             items = output if isinstance(output, list) else [output]
             for item in items:
-                if isinstance(item, dict) and item.get("response"):
+                if not isinstance(item, dict):
+                    continue
+                if item.get("response"):
                     self._responses[orchestration_id] = item["response"]
+                self._print_console_blocks(item)
+
+    def _print_console_blocks(self, item: dict) -> None:
+        """Render PLAN/FANOUT blocks for tool messages to uvicorn stdout.
+
+        Args:
+            item: One "tools" node update item (dict with messages).
+
+        Returns:
+            None.
+        """
+        if not settings.console_print:
+            return
+        for msg in item.get("messages", []):
+            if isinstance(msg, ToolMessage):
+                summary = tool_summary(msg)
+                if summary:
+                    print(summary, flush=True)
 
 
 orch_manager = OrchManager()

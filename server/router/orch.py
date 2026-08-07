@@ -22,6 +22,7 @@ from server.schema.orch import CreateOrchestrationRequest
 from server.service.orch_manager import orch_manager
 from utils import event
 from utils.logging import get_logger
+from utils.settings import settings
 
 logger = get_logger(__name__)
 
@@ -178,6 +179,9 @@ async def create_orchestration(body: CreateOrchestrationRequest) -> dict:
 
     if not body.conversation_id or not body.conversation_id.strip():
         raise HTTPException(status_code=400, detail="conversation_id is required")
+
+    if settings.console_print:
+        print(f"[USER QUERY]: {body.user_query.replace(chr(10), ' ')[:806]}")
 
     orchestration_id = orch_manager.create(body.user_query, body.conversation_id)
 

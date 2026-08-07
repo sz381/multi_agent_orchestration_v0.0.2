@@ -50,7 +50,8 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     dev_mode: bool = True
 
-    # Postgres archive URL; empty string disables persistence (fail-open).
+    console_print: bool = True
+
     database_url: str = ""
 
 
